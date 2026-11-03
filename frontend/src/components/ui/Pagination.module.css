@@ -1,0 +1,38 @@
+.pagination {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  align-items: center;
+  gap: 10px 16px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--rv-border);
+  color: var(--rv-muted);
+  font-size: 0.8rem;
+}
+
+.range {
+  font-variant-numeric: tabular-nums;
+}
+
+.controls {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.controls select {
+  min-height: 30px;
+  padding-block: 3px;
+  font-size: 0.8rem;
+}
+
+.sizeLabel {
+  white-space: nowrap;
+}
+
+.page {
+  min-width: 88px;
+  text-align: center;
+  color: var(--rv-text-soft);
+  font-variant-numeric: tabular-nums;
+}

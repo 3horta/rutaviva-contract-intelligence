@@ -1,0 +1,40 @@
+.panel {
+  min-width: 0;
+  padding: 14px 16px;
+  background: var(--rv-surface);
+  border: 1px solid var(--rv-border);
+  border-radius: var(--rv-radius-lg);
+}
+
+.flush {
+  padding: 0;
+  overflow: hidden;
+}
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.flush .header {
+  margin: 0;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--rv-border);
+}
+
+.eyebrow {
+  margin: 0 0 4px;
+  color: var(--rv-primary);
+  font-size: 0.66rem;
+  font-weight: 800;
+  letter-spacing: 0.11em;
+  text-transform: uppercase;
+}
+
+.title {
+  margin: 0;
+  font-size: 1rem;
+}

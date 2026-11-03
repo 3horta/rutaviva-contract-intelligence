@@ -1,0 +1,83 @@
+.field {
+  display: grid;
+  gap: 6px;
+  font-size: 0.78rem;
+  color: var(--rv-text-soft);
+}
+
+.label {
+  font-weight: 600;
+}
+
+.hint {
+  color: var(--rv-muted);
+  font-size: 0.74rem;
+}
+
+.error {
+  color: var(--rv-danger);
+  font-size: 0.76rem;
+}
+
+/* Shared by inputs, selects and textareas. */
+.control {
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 10px;
+  border: 1px solid var(--rv-input-border);
+  border-radius: var(--rv-radius-sm);
+  background: var(--rv-surface);
+  color: var(--rv-text);
+  font-size: 0.86rem;
+  outline: none;
+}
+
+.control::placeholder {
+  color: var(--rv-muted);
+}
+
+.control:focus,
+.control:focus-visible {
+  border-color: var(--rv-primary);
+  box-shadow: 0 0 0 3px var(--rv-focus-ring);
+}
+
+.control[aria-invalid="true"] {
+  border-color: var(--rv-danger);
+}
+
+textarea.control {
+  min-height: 96px;
+  line-height: 1.45;
+  resize: vertical;
+}
+
+.mono {
+  font-family: var(--rv-font-mono);
+  font-size: 0.76rem;
+  word-break: break-all;
+}
+
+select.control {
+  width: auto;
+  padding-right: 28px;
+  cursor: pointer;
+}
+
+/* Input with a leading icon (search). */
+.withIcon {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+}
+
+.withIcon > svg {
+  position: absolute;
+  left: 10px;
+  color: var(--rv-muted);
+  pointer-events: none;
+}
+
+.withIcon > .control {
+  padding-left: 32px;
+}

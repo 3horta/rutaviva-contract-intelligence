@@ -1,0 +1,85 @@
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 14px;
+  margin-bottom: 18px;
+}
+
+.card {
+  display: grid;
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 12px;
+  min-height: 100px;
+  padding: 16px;
+  background: var(--rv-surface);
+  border: 1px solid var(--rv-border);
+  border-radius: var(--rv-radius);
+  color: inherit;
+  text-align: left;
+  text-decoration: none;
+}
+
+a.card:hover {
+  border-color: var(--rv-primary-soft-border);
+  box-shadow: var(--rv-shadow-sm);
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--rv-radius);
+}
+
+.label,
+.help {
+  display: block;
+  color: var(--rv-muted);
+  font-size: 0.72rem;
+}
+
+.value {
+  display: block;
+  margin: 4px 0;
+  font-size: 1.55rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.value small {
+  margin-left: 4px;
+  color: var(--rv-muted);
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.neutral .icon,
+.primary .icon {
+  background: var(--rv-primary-soft);
+  color: var(--rv-primary);
+}
+
+.pending .icon {
+  background: var(--rv-purple-soft);
+  color: var(--rv-purple);
+}
+
+.processing .icon {
+  background: var(--rv-info-soft);
+  color: var(--rv-info);
+}
+
+.success .icon {
+  background: var(--rv-success-soft);
+  color: var(--rv-success);
+}
+
+.warning .icon {
+  background: var(--rv-warning-soft);
+  color: var(--rv-warning);
+}
+
+.failed .icon {
+  background: var(--rv-danger-soft);
+  color: var(--rv-danger);
+}

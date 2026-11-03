@@ -1,4 +1,4 @@
-"""Calibrate the thresholds of the extractive LLM with the evaluation set.
+"""Calibrate the BGE thresholds of the fake (extractive) LLM with the evaluation set.
 
 Runs in the Docker image (needs Docling and the local embedding model), all in memory:
 no database, no worker. For each tenant it extracts and chunks the sample PDFs as the
@@ -6,16 +6,16 @@ worker does, embeds the chunks, and for each question of sample_data/questions.y
   1. retrieves the top chunks by cosine (vector branch only: an approximation of the
      hybrid search, enough to compare thresholds);
   2. scores every sentence of those chunks against the question;
-  3. evaluates a grid of (floor, margin): an answerable question is right when it is
-     answered and one of `answer_has_any` is in a kept sentence; an unanswerable one is
-     right when the best sentence is below the floor.
+  3. evaluates a grid of (minimum, margin) with the selection rule of the fake LLM: an
+     answerable question is right when it is answered and one of `answer_has_any` is in
+     a kept sentence; an unanswerable one is right when the best sentence is below the
+     minimum.
 
     docker compose run --rm --no-deps \
       -v ./sample_data:/sample_data:ro api python scripts/calibrate_extractive.py
 """
 
 import argparse
-import json
 import uuid
 from pathlib import Path
 
@@ -27,8 +27,8 @@ from app.ingestion.chunking import chunk_document
 from app.ingestion.extract import DoclingExtractor
 from app.ingestion.pipeline import title_from_filename
 from app.providers import get_embeddings
-from app.providers.llm.base import ContextChunk, PromptInput
-from app.providers.llm.extractive import ExtractiveLLM
+from app.providers.llm.base import ContextChunk
+from app.providers.llm.fake import MAX_SENTENCES, _candidates
 
 
 def _load_tenant(path: Path, extractor, embeddings, settings):
@@ -78,15 +78,6 @@ def main() -> None:
     settings = Settings(_env_file=None, embeddings_provider="local")
     embeddings = get_embeddings(settings)
     extractor = DoclingExtractor(settings.docling_artifacts_path)
-    # Score every usable sentence: no floor, no margin, no cap.
-    scorer = ExtractiveLLM(
-        embeddings,
-        min_similarity=-1,
-        margin=2,
-        max_sentences=1000,
-        high_similarity=2,
-        min_sentence_words=settings.extractive_min_sentence_words,
-    )
 
     spec = yaml.safe_load((args.data / "questions.yaml").read_text())
     corpus = {}
@@ -98,24 +89,26 @@ def main() -> None:
     print("\nid | kind | expected | top similarities | rank of first sentence with the answer")
     for q in spec["questions"]:
         chunks, vectors = corpus[q["tenant"]]
-        context = _retrieve(embeddings.embed_query(q["question"]), chunks, vectors, settings)
-        result = scorer.generate(PromptInput(question=q["question"], chunks=context), 1)
-        payload = json.loads(result.text)
-        quotes = [c["quote"] for c in payload["citations"]]
-        sims = [float(s) for s in result.extra["top_similarities"].split(",") if s]
-        # All similarities, not only the top 5 of `extra`: recompute for the ranking.
         query = embeddings.embed_query(q["question"])
-        all_sims = [
-            sum(a * b for a, b in zip(query, v, strict=True))
-            for v in embeddings.embed_documents(quotes)
-        ]
+        context = _retrieve(query, chunks, vectors, settings)
+        # Every quotable sentence, as the fake LLM sees them, with its similarity.
+        sentences = [c[3] for c in _candidates(context)]
+        scored = sorted(
+            (
+                (sum(a * b for a, b in zip(query, v, strict=True)), text)
+                for v, text in zip(embeddings.embed_documents(sentences), sentences, strict=True)
+            ),
+            key=lambda p: -p[0],
+        )
+        sims = [sim for sim, _ in scored]
+        quotes = [text for _, text in scored]
         expect = q["expect"]
         needles = [s.lower() for s in expect.get("answer_has_any", [])]
         hit = next(
             (i for i, quote in enumerate(quotes) if any(n in quote.lower() for n in needles)),
             None,
         )
-        rows.append((q, expect["outcome"], all_sims, hit))
+        rows.append((q, expect["outcome"], sims, hit))
         print(
             f"{q['id']} | {q['kind']} | {expect['outcome']} | "
             f"{', '.join(f'{s:.3f}' for s in sims[:4])} | {hit}"
@@ -130,7 +123,8 @@ def main() -> None:
                 if not sims or sims[0] < floor:
                     unans_ok += outcome == "insufficient_evidence"
                     continue
-                kept = [i for i, s in enumerate(sims) if s >= sims[0] - margin][:3]
+                cutoff = max(sims[0] - margin, floor)
+                kept = [i for i, s in enumerate(sims) if s >= cutoff][:MAX_SENTENCES]
                 answered += 1
                 sentences += len(kept)
                 ans_ok += outcome == "answered" and hit is not None and hit in kept

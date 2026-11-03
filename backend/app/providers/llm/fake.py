@@ -1,8 +1,21 @@
 """Deterministic, extractive fake LLM: the default, so the whole pipeline runs with no key.
 
 It does not write anything. It ranks the sentences of the context by cosine similarity
-to the question, using the SAME embeddings provider as retrieval, and returns the best
-1-2 sentences verbatim as the answer and as the citation quotes.
+to the question, using the SAME embeddings provider as retrieval, and quotes the best
+ones verbatim, inside a short neutral template that names the document and page.
+
+Which sentences (thresholds per embedding model, see `THRESHOLDS`):
+  1. sorted by similarity, s1 >= s2 >= ...; if s1 < `minimum`: insufficient evidence;
+  2. every sentence with s >= s1 - `margin` is kept, up to `MAX_SENTENCES`. The cut is
+     relative to the best one because a retrieval model compresses cosines (most
+     sentences of the same domain score 0.6-0.9): 0.99 / 0.40 keeps one sentence,
+     0.95 / 0.92 keeps both.
+Confidence is `high` when s1 >= `strong`, else `medium` (a similarity is not a
+probability of being right; the service also caps it with its retrieval signal).
+
+Never quoted: sentences of chunks flagged as prompt injection (an extractor cannot tell
+an injected instruction from a clause), and text repeated by the overlap between chunks
+(quoted once). The templates only add neutral connectors, never an interpretation.
 
 - At runtime the embedder is the real local model (BGE), so a question matches a
   sentence by meaning: "truck arrives after the deadline" finds "fails to deliver within
@@ -18,6 +31,7 @@ instead of a whole sentence; it is the next step if the evaluation set shows sen
 that look like the question without answering it (see the decisions log).
 """
 
+import hashlib
 import json
 import math
 import re
@@ -28,11 +42,11 @@ from dataclasses import dataclass
 from app.core.config import FakeLLMMode
 from app.core.errors import ProviderTimeoutError
 from app.providers.embeddings.base import EmbeddingsProvider
-from app.providers.llm.base import LLMResult, PromptInput
+from app.providers.llm.base import ContextChunk, LLMResult, PromptInput
 
-FAKE_LLM_MODEL = "fake-extractive-v2"
+FAKE_LLM_MODEL = "fake-extractive-v3"
 
-MAX_SENTENCES = 2
+MAX_SENTENCES = 3
 # Fragments shorter than this are headings ("7.2 Late Delivery.", "Incident Reporting
 # Protocol RV-IRP-7.") or list markers. Alone they look very much like the question and
 # answer nothing, so each one is joined to the sentence that follows it.
@@ -43,9 +57,10 @@ TRAILING_MIN_WORDS = 5
 @dataclass(frozen=True)
 class SimilarityThresholds:
     # Below `minimum` a sentence is not evidence; the best one reaching `strong` gives
-    # confidence "high".
+    # confidence "high"; sentences within `margin` of the best one are kept with it.
     minimum: float
     strong: float
+    margin: float = 0.05
 
 
 # Cosine scales are model-specific, so the thresholds are too. Keyed by embedding model
@@ -53,15 +68,26 @@ class SimilarityThresholds:
 #   fake-hash-v1: measured; unrelated sentences score <= 0.19, answers 0.30-0.49.
 #   BGE and any other real model: PROVISIONAL, to calibrate with the evaluation set.
 THRESHOLDS: dict[str, SimilarityThresholds] = {
-    "fake-hash-v1": SimilarityThresholds(minimum=0.25, strong=0.40),
+    "fake-hash-v1": SimilarityThresholds(minimum=0.25, strong=0.40, margin=0.05),
 }
-DEFAULT_THRESHOLDS = SimilarityThresholds(minimum=0.55, strong=0.70)
+DEFAULT_THRESHOLDS = SimilarityThresholds(minimum=0.55, strong=0.70, margin=0.03)
 
 _WORD = re.compile(r"[a-z0-9]+")
 # Sentence boundary: end punctuation followed by whitespace, or a line break.
 _SENTENCE_END = re.compile(r"(?<=[.!?;])\s+|\n+")
 
 _NOT_JSON = "Sorry, I cannot produce JSON right now."
+
+# The first sentence names its source; each follow-up names it relative to the sentence
+# before it, so "it" always refers to the document just mentioned.
+_FIRST = (
+    'According to {filename} (page {page}): "{quote}"',
+    '{filename} states on page {page}: "{quote}"',
+    'The relevant clause, in {filename} (page {page}), reads: "{quote}"',
+)
+_SAME_PAGE = ' It also states: "{quote}"'
+_SAME_DOCUMENT = ' On page {page} it also states: "{quote}"'
+_OTHER_DOCUMENT = ' In addition, {filename} (page {page}) says: "{quote}"'
 
 
 def thresholds_for(embedding_model_id: str) -> SimilarityThresholds:
@@ -153,12 +179,7 @@ class FakeLLM:
         if word_count(prompt.question) == 0:
             return _insufficient()
 
-        # (chunk position, sentence position, chunk, sentence) of every candidate.
-        candidates = [
-            (chunk_pos, sentence_pos, chunk, sentence)
-            for chunk_pos, chunk in enumerate(prompt.chunks)
-            for sentence_pos, sentence in enumerate(split_sentences(chunk.text))
-        ]
+        candidates = _candidates(prompt.chunks)
         if not candidates:
             return _insufficient()
 
@@ -171,22 +192,65 @@ class FakeLLM:
             (_cosine(question_vector, vector), *candidate)
             for vector, candidate in zip(sentence_vectors, candidates, strict=True)
         ]
-        scored = [item for item in scored if item[0] >= self.thresholds.minimum]
-        if not scored:
-            return _insufficient()
-
         # Ties keep the retrieval order, so the output depends only on the input.
         scored.sort(key=lambda item: (-item[0], item[1], item[2]))
-        best = scored[:MAX_SENTENCES]
-        confidence = "high" if best[0][0] >= self.thresholds.strong else "medium"
+        top = scored[0][0]
+        if top < self.thresholds.minimum:
+            return _insufficient()
+        cutoff = max(top - self.thresholds.margin, self.thresholds.minimum)
+        best = [item for item in scored if item[0] >= cutoff][:MAX_SENTENCES]
+        confidence = "high" if top >= self.thresholds.strong else "medium"
         return {
-            "answer": " ".join(sentence for *_, sentence in best),
+            "answer": _compose(
+                prompt.question, [(chunk, sentence) for *_, chunk, sentence in best]
+            ),
             "citations": [
                 {"chunk_id": str(chunk.chunk_id), "quote": sentence} for *_, chunk, sentence in best
             ],
             "confidence": confidence,
             "insufficient_evidence": False,
         }
+
+
+def _candidates(chunks: list[ContextChunk]) -> list[tuple[int, int, ContextChunk, str]]:
+    """(chunk position, sentence position, chunk, sentence) of every quotable sentence."""
+    found = [
+        (chunk_pos, sentence_pos, chunk, sentence)
+        for chunk_pos, chunk in enumerate(chunks)
+        if not chunk.flagged_injection
+        for sentence_pos, sentence in enumerate(split_sentences(chunk.text))
+    ]
+    # The tail of a chunk is repeated at the start of the next one (overlap), so the
+    # same sentence, or the end of one, can appear twice. Drop every candidate whose
+    # text is inside another candidate; of exact duplicates keep the first.
+    # Same normalisation as the validator (case and whitespace runs ignored).
+    keys = [" ".join(item[3].split()).casefold() for item in found]
+    return [
+        item
+        for i, item in enumerate(found)
+        if not any(
+            j != i and keys[i] in keys[j] and (keys[i] != keys[j] or j < i)
+            for j in range(len(found))
+        )
+    ]
+
+
+def _compose(question: str, quotes: list[tuple[ContextChunk, str]]) -> str:
+    first, text = quotes[0]
+    # Same question, same template, on every run (unlike `hash()`, which is salted).
+    template = _FIRST[hashlib.sha256(question.encode()).digest()[0] % len(_FIRST)]
+    parts = [template.format(filename=first.filename, page=first.page, quote=text)]
+    previous = first
+    for chunk, text in quotes[1:]:
+        if chunk.document_id != previous.document_id:
+            follow = _OTHER_DOCUMENT
+        elif chunk.page != previous.page:
+            follow = _SAME_DOCUMENT
+        else:
+            follow = _SAME_PAGE
+        parts.append(follow.format(filename=chunk.filename, page=chunk.page, quote=text))
+        previous = chunk
+    return "".join(parts)
 
 
 def _insufficient() -> dict:

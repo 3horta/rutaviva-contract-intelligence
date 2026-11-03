@@ -25,7 +25,9 @@ router = APIRouter(tags=["query"])
 def query(
     body: QueryRequest,
     tenant: Annotated[TenantContext, Depends(get_current_tenant)],
-    session: Annotated[Session, Depends(get_tenant_session)],
+    # scope="function": the transaction commits (or fails) BEFORE the response is sent;
+    # with the default scope a failed commit could still return 200.
+    session: Annotated[Session, Depends(get_tenant_session, scope="function")],
     settings: Annotated[Settings, Depends(get_settings)],
 ) -> QueryResponse:
     # The tenant comes only from the verified token (get_current_tenant), never from

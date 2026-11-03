@@ -16,6 +16,7 @@ worker does, embeds the chunks, and for each question of sample_data/questions.y
 """
 
 import argparse
+import os
 import uuid
 from pathlib import Path
 
@@ -75,7 +76,12 @@ def main() -> None:
     parser.add_argument("--data", type=Path, default=Path("/sample_data"))
     args = parser.parse_args()
 
-    settings = Settings(_env_file=None, embeddings_provider="local")
+    # Without validation: Settings refuses LLM_PROVIDER=fake for a model with no
+    # calibrated thresholds, and producing them is the point of this script.
+    artifacts = os.environ.get("DOCLING_ARTIFACTS_PATH")
+    settings = Settings.model_construct(
+        embeddings_provider="local", docling_artifacts_path=Path(artifacts) if artifacts else None
+    )
     embeddings = get_embeddings(settings)
     extractor = DoclingExtractor(settings.docling_artifacts_path)
 
@@ -116,7 +122,7 @@ def main() -> None:
 
     print("\nfloor margin | answerable ok | unanswerable ok | total ok | avg sentences")
     results = []
-    for floor in [x / 100 for x in range(55, 86)]:
+    for floor in [x / 100 for x in range(40, 91)]:
         for margin in [x / 100 for x in range(1, 9)]:
             ans_ok = unans_ok = sentences = answered = 0
             for _, outcome, sims, hit in rows:
@@ -135,6 +141,7 @@ def main() -> None:
     print(f"(answerable: {n_ans}, unanswerable: {len(rows) - n_ans})")
     for total, a, u, floor, margin, avg in sorted(results, key=lambda r: (-r[0], -r[3], r[4]))[:15]:
         print(f"{floor:.2f} {margin:.2f} | {a} | {u} | {total} | {avg:.2f}")
+    print(f"\nembedding model: {embeddings.model_id} (key in app/core/similarity.py)")
 
 
 if __name__ == "__main__":

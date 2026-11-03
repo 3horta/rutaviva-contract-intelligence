@@ -4,14 +4,15 @@ It does not write anything. It ranks the sentences of the context by cosine simi
 to the question, using the SAME embeddings provider as retrieval, and quotes the best
 ones verbatim, inside a short neutral template that names the document and page.
 
-Which sentences (thresholds per embedding model, see `THRESHOLDS`):
+Which sentences (calibrated thresholds per embedding model, see `app/core/similarity.py`):
   1. sorted by similarity, s1 >= s2 >= ...; if s1 < `minimum`: insufficient evidence;
   2. every sentence with s >= s1 - `margin` is kept, up to `MAX_SENTENCES`. The cut is
      relative to the best one because a retrieval model compresses cosines (most
      sentences of the same domain score 0.6-0.9): 0.99 / 0.40 keeps one sentence,
      0.95 / 0.92 keeps both.
-Confidence is `high` when s1 >= `strong`, else `medium` (a similarity is not a
-probability of being right; the service also caps it with its retrieval signal).
+Confidence: it declares `high` whenever it answers (it only quotes verbatim, and a
+similarity is not a probability of being right); the service takes the minimum of that
+and its retrieval signal, so in practice the retrieval signal decides.
 
 Never quoted: sentences of chunks flagged as prompt injection (an extractor cannot tell
 an injected instruction from a clause), and text repeated by the overlap between chunks
@@ -37,10 +38,10 @@ import math
 import re
 import time
 import unicodedata
-from dataclasses import dataclass
 
 from app.core.config import FakeLLMMode
 from app.core.errors import ProviderTimeoutError
+from app.core.similarity import SimilarityThresholds, calibrated_thresholds
 from app.providers.embeddings.base import EmbeddingsProvider
 from app.providers.llm.base import ContextChunk, LLMResult, PromptInput
 
@@ -53,24 +54,6 @@ MAX_SENTENCES = 3
 HEADING_MAX_WORDS = 7
 TRAILING_MIN_WORDS = 5
 
-
-@dataclass(frozen=True)
-class SimilarityThresholds:
-    # Below `minimum` a sentence is not evidence; the best one reaching `strong` gives
-    # confidence "high"; sentences within `margin` of the best one are kept with it.
-    minimum: float
-    strong: float
-    margin: float = 0.05
-
-
-# Cosine scales are model-specific, so the thresholds are too. Keyed by embedding model
-# name (the part of `model_id` before "@").
-#   fake-hash-v1: measured; unrelated sentences score <= 0.19, answers 0.30-0.49.
-#   BGE and any other real model: PROVISIONAL, to calibrate with the evaluation set.
-THRESHOLDS: dict[str, SimilarityThresholds] = {
-    "fake-hash-v1": SimilarityThresholds(minimum=0.25, strong=0.40, margin=0.05),
-}
-DEFAULT_THRESHOLDS = SimilarityThresholds(minimum=0.55, strong=0.70, margin=0.03)
 
 _WORD = re.compile(r"[a-z0-9]+")
 # Sentence boundary: end punctuation followed by whitespace, or a line break.
@@ -88,10 +71,6 @@ _FIRST = (
 _SAME_PAGE = ' It also states: "{quote}"'
 _SAME_DOCUMENT = ' On page {page} it also states: "{quote}"'
 _OTHER_DOCUMENT = ' In addition, {filename} (page {page}) says: "{quote}"'
-
-
-def thresholds_for(embedding_model_id: str) -> SimilarityThresholds:
-    return THRESHOLDS.get(embedding_model_id.split("@", 1)[0], DEFAULT_THRESHOLDS)
 
 
 def word_count(text: str) -> int:
@@ -147,7 +126,11 @@ class FakeLLM:
     ) -> None:
         self.embeddings = embeddings
         self.mode = mode
-        self.thresholds = thresholds or thresholds_for(embeddings.model_id)
+        found = thresholds or calibrated_thresholds(embeddings.model_id)
+        if found is None:
+            # Settings already refuses to start in this case; this guards direct use.
+            raise ValueError(f"no calibrated similarity thresholds for {embeddings.model_id}")
+        self.thresholds = found
         self.model_id = FAKE_LLM_MODEL
 
     def generate(self, prompt: PromptInput, *, timeout_s: float) -> LLMResult:
@@ -199,7 +182,6 @@ class FakeLLM:
             return _insufficient()
         cutoff = max(top - self.thresholds.margin, self.thresholds.minimum)
         best = [item for item in scored if item[0] >= cutoff][:MAX_SENTENCES]
-        confidence = "high" if top >= self.thresholds.strong else "medium"
         return {
             "answer": _compose(
                 prompt.question, [(chunk, sentence) for *_, chunk, sentence in best]
@@ -207,7 +189,7 @@ class FakeLLM:
             "citations": [
                 {"chunk_id": str(chunk.chunk_id), "quote": sentence} for *_, chunk, sentence in best
             ],
-            "confidence": confidence,
+            "confidence": "high",
             "insufficient_evidence": False,
         }
 

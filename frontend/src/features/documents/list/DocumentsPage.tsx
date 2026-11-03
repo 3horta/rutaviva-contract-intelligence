@@ -1,7 +1,7 @@
 import { FileSearch, Search, Upload } from "lucide-react";
-import { useId, useState } from "react";
+import { useCallback, useEffect, useId, useState } from "react";
 import { useSearchParams } from "react-router-dom";
-import type { DocumentOrdering, DocumentStatus } from "../../../api/types";
+import type { DocumentStatus } from "../../../api/types";
 import { ButtonLink } from "../../../components/ui/Button";
 import { ErrorAlert, LoadingState, Spinner, StateBlock } from "../../../components/ui/Feedback";
 import { Input } from "../../../components/ui/Field";
@@ -13,26 +13,35 @@ import { useDocumentList, useDocumentStats } from "../queries";
 import { DOCUMENT_STATUS, DOCUMENT_STATUSES } from "../status";
 import { DocumentsTable } from "./DocumentsTable";
 import styles from "./DocumentsList.module.css";
-import { DEFAULT_ORDERING, nextOrdering, type SortField } from "./ordering";
+import { nextOrdering, type SortField } from "./ordering";
+import { PAGE_SIZES, parseTableState, serializeTableState, type TableState } from "./tableParams";
 
-const PAGE_SIZES = [10, 25, 50] as const;
 const SEARCH_DEBOUNCE_MS = 300;
-
-const isStatus = (value: string | null): value is DocumentStatus =>
-  value !== null && Object.hasOwn(DOCUMENT_STATUS, value);
 
 export function DocumentsPage() {
   const searchId = useId();
-  // The status filter lives in the URL, so the dashboard cards can link to it.
+  // The whole table state (page, size, sort, search, status) lives in the URL, so the
+  // back button and shared links restore it, and the dashboard cards can link to a status.
   const [params, setParams] = useSearchParams();
-  const statusParam = params.get("status");
-  const status = isStatus(statusParam) ? statusParam : undefined;
+  const { page, pageSize, ordering, search, status } = parseTableState(params);
 
-  const [page, setPage] = useState(0);
-  const [pageSize, setPageSize] = useState<number>(PAGE_SIZES[0]);
-  const [ordering, setOrdering] = useState<DocumentOrdering>(DEFAULT_ORDERING);
-  const [searchText, setSearchText] = useState("");
-  const search = useDebouncedValue(searchText.trim(), SEARCH_DEBOUNCE_MS);
+  /** Page and sort changes add a history entry (Back undoes them); typing replaces it. */
+  const update = useCallback(
+    (patch: Partial<TableState>, options: { replace?: boolean } = {}) =>
+      setParams((current) => serializeTableState({ ...parseTableState(current), ...patch }), options),
+    [setParams],
+  );
+
+  // The input is local while typing; its debounced value is written to the URL.
+  const [searchText, setSearchText] = useState(search);
+  const debouncedSearch = useDebouncedValue(searchText.trim(), SEARCH_DEBOUNCE_MS);
+  useEffect(() => {
+    if (debouncedSearch !== search) update({ search: debouncedSearch, page: 0 }, { replace: true });
+  }, [debouncedSearch, search, update]);
+  // And the other way round: Back/Forward to another search refills the input.
+  useEffect(() => {
+    setSearchText((text) => (text.trim() === search ? text : search));
+  }, [search]);
 
   const stats = useDocumentStats();
   const list = useDocumentList({
@@ -44,8 +53,7 @@ export function DocumentsPage() {
   });
 
   function filterByStatus(next: DocumentStatus | undefined) {
-    setPage(0);
-    setParams(next ? { status: next } : {}, { replace: true });
+    update({ status: next, page: 0 });
   }
 
   const filtered = Boolean(status || search);
@@ -95,10 +103,7 @@ export function DocumentsPage() {
               icon={<Search size={15} aria-hidden="true" />}
               placeholder="Search by file name"
               value={searchText}
-              onChange={(event) => {
-                setSearchText(event.target.value);
-                setPage(0);
-              }}
+              onChange={(event) => setSearchText(event.target.value)}
             />
             {list.isFetching && !list.isPending && <Spinner size={14} label="Updating" />}
           </div>
@@ -117,10 +122,9 @@ export function DocumentsPage() {
             <DocumentsTable
               documents={list.data.results}
               ordering={ordering}
-              onSort={(field: SortField) => {
-                setOrdering((current) => nextOrdering(current, field));
-                setPage(0);
-              }}
+              onSort={(field: SortField) =>
+                update({ ordering: nextOrdering(ordering, field), page: 0 })
+              }
               empty={
                 <StateBlock
                   compact
@@ -138,11 +142,8 @@ export function DocumentsPage() {
               page={page}
               pageSize={pageSize}
               pageSizes={PAGE_SIZES}
-              onPageChange={setPage}
-              onPageSizeChange={(size) => {
-                setPageSize(size);
-                setPage(0);
-              }}
+              onPageChange={(next) => update({ page: next })}
+              onPageSizeChange={(size) => update({ pageSize: size, page: 0 }, { replace: true })}
             />
           </>
         ) : null}

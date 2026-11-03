@@ -1,0 +1,1 @@
+# Decisiones de arquitectura

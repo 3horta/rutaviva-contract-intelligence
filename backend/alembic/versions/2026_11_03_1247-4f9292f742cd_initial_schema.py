@@ -127,7 +127,8 @@ def upgrade() -> None:
         sa.Column("filename", sa.Text(), nullable=False),
         sa.Column("sha256", sa.String(length=64), nullable=False),
         sa.Column("status", sa.Text(), server_default="pending", nullable=False),
-        sa.Column("error_reason", sa.Text(), nullable=True),
+        sa.Column("failure_code", sa.Text(), nullable=True),
+        sa.Column("failure_detail", sa.Text(), nullable=True),
         sa.Column("page_count", sa.Integer(), nullable=True),
         sa.Column("chunk_count", sa.Integer(), nullable=True),
         sa.Column("embedding_model", sa.Text(), nullable=True),
@@ -145,6 +146,15 @@ def upgrade() -> None:
             postgresql.TIMESTAMP(timezone=True),
             server_default=sa.text("now()"),
             nullable=False,
+        ),
+        sa.CheckConstraint(
+            "failure_code IS NULL OR failure_code IN ('corrupt_pdf', 'empty_pdf', "
+            "'embedding_unavailable', 'timeout', 'worker_lost', 'internal_error')",
+            name=op.f("ck_documents_failure_code"),
+        ),
+        sa.CheckConstraint(
+            "(status = 'failed') = (failure_code IS NOT NULL)",
+            name=op.f("ck_documents_failure_status"),
         ),
         sa.CheckConstraint("attempts >= 0", name=op.f("ck_documents_attempts_non_negative")),
         sa.CheckConstraint(

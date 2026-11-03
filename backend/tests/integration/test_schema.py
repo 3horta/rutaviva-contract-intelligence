@@ -127,3 +127,25 @@ def test_lease_only_exists_while_processing(
     with pytest.raises(IntegrityError, match="ck_documents_processing_lease"):  # noqa: SIM117
         with tenant_transaction(app_sessions, tenant_a) as session:
             session.add(document)
+
+
+@pytest.mark.parametrize(
+    ("status", "code", "constraint"),
+    [
+        ("failed", None, "ck_documents_failure_status"),
+        ("ready", "corrupt_pdf", "ck_documents_failure_status"),
+        ("failed", "something_else", "ck_documents_failure_code"),
+    ],
+    ids=["failed-without-code", "ready-with-code", "unknown-code"],
+)
+def test_failure_code_is_closed_and_only_on_failed_documents(
+    app_sessions: sessionmaker[Session], two_tenants, status: str, code: str | None, constraint: str
+):
+    # D-032: a failed document always says why, with a code from a closed set.
+    tenant_a, _ = two_tenants
+    document = _document(tenant_a)
+    document.status = status
+    document.failure_code = code
+    with pytest.raises(IntegrityError, match=constraint):  # noqa: SIM117
+        with tenant_transaction(app_sessions, tenant_a) as session:
+            session.add(document)

@@ -44,6 +44,18 @@ class DocumentStatus(StrEnum):
     FAILED = "failed"
 
 
+class FailureCode(StrEnum):
+    """Closed set of reasons a document ends in `failed` (D-032). The UI and the tests
+    branch on the code; `failure_detail` carries the human-readable explanation."""
+
+    CORRUPT_PDF = "corrupt_pdf"  # cannot be opened or parsed
+    EMPTY_PDF = "empty_pdf"  # no extractable text (e.g. a scan; OCR is out of scope)
+    EMBEDDING_UNAVAILABLE = "embedding_unavailable"  # provider failed after retries (D-029)
+    TIMEOUT = "timeout"  # the task exceeded its time limit
+    WORKER_LOST = "worker_lost"  # too many deliveries without finishing (D-024)
+    INTERNAL_ERROR = "internal_error"  # anything unexpected; never left in `processing`
+
+
 class MessageRole(StrEnum):
     USER = "user"
     ASSISTANT = "assistant"
@@ -98,6 +110,11 @@ class Document(Base):
         UniqueConstraint("id", "tenant_id"),
         CheckConstraint(_in("status", DocumentStatus), name="status"),
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="sha256_hex"),
+        CheckConstraint(
+            f"failure_code IS NULL OR {_in('failure_code', FailureCode)}", name="failure_code"
+        ),
+        # A failed document always says why, and only failed documents carry a code.
+        CheckConstraint("(status = 'failed') = (failure_code IS NOT NULL)", name="failure_status"),
         CheckConstraint("attempts >= 0", name="attempts_non_negative"),
         # El lease solo existe mientras se procesa (D-024): al salir de `processing`
         # hay que limpiarlo, y no se puede entrar en `processing` sin fijarlo.
@@ -116,7 +133,8 @@ class Document(Base):
     status: Mapped[str] = mapped_column(
         Text, default=DocumentStatus.PENDING, server_default=DocumentStatus.PENDING
     )
-    error_reason: Mapped[str | None] = mapped_column(Text)
+    failure_code: Mapped[str | None] = mapped_column(Text)
+    failure_detail: Mapped[str | None] = mapped_column(Text)
     page_count: Mapped[int | None]
     chunk_count: Mapped[int | None]
     # Versión del embedding con la que se indexó (sección 8.3).

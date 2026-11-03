@@ -18,12 +18,20 @@ def _chunk(document_id: uuid.UUID, content: str, score: float) -> RetrievedChunk
     )
 
 
-def test_near_duplicates_keep_only_the_best_scored_copy() -> None:
-    doc_a, doc_b = uuid.uuid4(), uuid.uuid4()
+def test_near_duplicates_in_one_document_keep_only_the_best_scored_copy() -> None:
+    doc_a = uuid.uuid4()
     best = _chunk(doc_a, "Supplier shall report any accident within two hours.", 0.9)
-    copy = _chunk(doc_b, "Supplier shall report any accident within two hours", 0.5)
-    other = _chunk(doc_b, "The fuel surcharge follows the EIA diesel index.", 0.4)
+    copy = _chunk(doc_a, "Supplier shall report any accident within two hours", 0.5)
+    other = _chunk(doc_a, "The fuel surcharge follows the EIA diesel index.", 0.4)
     assert select_chunks([copy, other, best], k=8, max_per_document=3) == [best, other]
+
+
+def test_same_text_in_two_documents_keeps_both() -> None:
+    # A standard clause in two contracts: the user should see both are affected.
+    doc_a, doc_b = uuid.uuid4(), uuid.uuid4()
+    in_a = _chunk(doc_a, "Supplier shall report any accident within two hours.", 0.9)
+    in_b = _chunk(doc_b, "Supplier shall report any accident within two hours.", 0.8)
+    assert select_chunks([in_b, in_a], k=8, max_per_document=3) == [in_a, in_b]
 
 
 def test_chunks_per_document_are_capped() -> None:

@@ -1,0 +1,142 @@
+.spin {
+  animation: rv-spin 1s linear infinite;
+}
+
+.waiting {
+  margin-bottom: 18px;
+}
+
+.failureReason,
+.failureDetail {
+  margin: 0;
+}
+
+.failureDetail {
+  margin-top: 2px;
+  opacity: 0.85;
+}
+
+.dataGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px 24px;
+  margin: 4px 0 6px;
+}
+
+.dataGrid div {
+  padding-bottom: 9px;
+  border-bottom: 1px solid var(--rv-border);
+}
+
+.dataGrid dt {
+  margin-bottom: 5px;
+  color: var(--rv-muted);
+  font-size: 0.72rem;
+}
+
+.dataGrid dd {
+  margin: 0;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+/* Citation + viewer, side by side; the viewer stays in view while reading. */
+.source {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.8fr) minmax(420px, 1.2fr);
+  gap: 16px;
+  align-items: start;
+  margin-top: 18px;
+}
+
+/* With only a page and no chunk, the viewer takes the whole row. */
+.source > .viewerFrame:only-child {
+  grid-column: 1 / -1;
+}
+
+.citation {
+  align-self: start;
+}
+
+.citationSource {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 12px;
+  font-size: 0.84rem;
+}
+
+.citationSource svg {
+  color: var(--rv-primary);
+}
+
+.citationFile {
+  font-weight: 650;
+  overflow-wrap: anywhere;
+}
+
+.citationPage {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--rv-primary-soft);
+  color: var(--rv-primary);
+  font-size: 0.74rem;
+  font-weight: 650;
+}
+
+.quote {
+  position: relative;
+  margin: 0;
+  padding: 14px 16px 14px 38px;
+  border-left: 3px solid var(--rv-primary);
+  border-radius: 0 var(--rv-radius) var(--rv-radius) 0;
+  background: var(--rv-surface-alt);
+}
+
+.quote p {
+  margin: 0;
+  font-size: 0.9rem;
+  line-height: 1.65;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.quoteMark {
+  position: absolute;
+  top: 16px;
+  left: 13px;
+  color: var(--rv-primary);
+}
+
+.citationMeta {
+  margin: 10px 0 0;
+  color: var(--rv-muted);
+  font-size: 0.76rem;
+}
+
+.viewerFrame {
+  position: sticky;
+  top: calc(var(--rv-topbar-height) + 16px);
+  height: calc(100vh - var(--rv-topbar-height) - 48px);
+  min-height: 520px;
+  overflow: hidden;
+  border-radius: var(--rv-radius);
+  background: var(--rv-viewer-stage);
+}
+
+.viewerMessage {
+  padding: 16px;
+}
+
+@media (max-width: 1000px) {
+  .source {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .viewerFrame {
+    position: relative;
+    top: 0;
+    height: 640px;
+  }
+}

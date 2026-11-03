@@ -1,0 +1,126 @@
+.panel {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  min-width: 0;
+  min-height: 280px;
+  padding: 24px;
+  text-align: center;
+  border: 1px dashed var(--rv-primary-soft-border);
+  border-radius: var(--rv-radius-lg);
+  background: linear-gradient(135deg, var(--rv-surface) 50%, var(--rv-primary-soft));
+  transition:
+    border-color 0.15s,
+    background-color 0.15s;
+}
+
+.dragging {
+  border-style: solid;
+  border-color: var(--rv-primary);
+  background: var(--rv-primary-soft);
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  background: var(--rv-primary-soft-border);
+  color: var(--rv-on-primary);
+}
+
+:global([data-theme="dark"]) .icon {
+  color: var(--rv-primary);
+}
+
+.title {
+  margin: 2px 0 0;
+  font-size: 1.2rem;
+  font-weight: 550;
+}
+
+.help {
+  margin: 0 0 4px;
+  color: var(--rv-muted);
+  font-size: 0.88rem;
+}
+
+.batch {
+  width: 100%;
+  max-width: 680px;
+  margin-top: 8px;
+  text-align: left;
+}
+
+.batchHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-height: 30px;
+  margin-bottom: 6px;
+  color: var(--rv-muted);
+  font-size: 0.8rem;
+}
+
+.summary {
+  color: var(--rv-text-soft);
+}
+
+.list {
+  max-height: 240px;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+  border: 1px solid var(--rv-border);
+  border-radius: 8px;
+  background: var(--rv-surface);
+}
+
+.row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--rv-border);
+  font-size: 0.8rem;
+}
+
+.row:last-child {
+  border-bottom: 0;
+}
+
+.fileIcon {
+  color: var(--rv-primary);
+}
+
+.name {
+  overflow: hidden;
+  color: var(--rv-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+a.name {
+  color: var(--rv-primary);
+}
+
+.detail {
+  color: var(--rv-muted);
+  white-space: nowrap;
+}
+
+@media (max-width: 600px) {
+  .row {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+  }
+
+  .detail {
+    display: none;
+  }
+}

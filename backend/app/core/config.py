@@ -66,7 +66,6 @@ class Settings(BaseSettings):
 
     # Claves (solo en .env o Docker secrets, nunca versionadas)
     gemini_api_key: SecretStr | None = None
-    groq_api_key: SecretStr | None = None
 
     @model_validator(mode="after")
     def _validate_providers(self) -> Self:
@@ -80,19 +79,13 @@ class Settings(BaseSettings):
 
         if self.llm_provider == "litellm":
             if not self.llm_model:
-                errors.append(
-                    "LLM_PROVIDER=litellm requiere LLM_MODEL "
-                    "(p. ej. gemini/<modelo> o groq/<modelo>)"
-                )
+                errors.append("LLM_PROVIDER=litellm requiere LLM_MODEL (p. ej. gemini/<modelo>)")
             elif self.llm_model.startswith("gemini/"):
                 if not _has_value(self.gemini_api_key):
                     errors.append(f"LLM_MODEL={self.llm_model} requiere GEMINI_API_KEY")
-            elif self.llm_model.startswith("groq/"):
-                if not _has_value(self.groq_api_key):
-                    errors.append(f"LLM_MODEL={self.llm_model} requiere GROQ_API_KEY")
             else:
                 errors.append(
-                    f"LLM_MODEL={self.llm_model} no está soportado: usa el prefijo gemini/ o groq/"
+                    f"LLM_MODEL={self.llm_model} no está soportado: usa el prefijo gemini/"
                 )
 
         if self.embeddings_provider == "gemini" and not _has_value(self.gemini_api_key):

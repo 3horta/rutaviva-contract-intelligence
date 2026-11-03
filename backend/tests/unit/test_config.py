@@ -13,7 +13,6 @@ def test_sin_variables_arranca_en_modo_falso(make_settings) -> None:
     assert s.embedding_model_id == "fake-hash-v1@768"
     assert s.fake_llm_mode == "ok"
     assert s.gemini_api_key is None
-    assert s.groq_api_key is None
 
 
 @pytest.mark.parametrize(
@@ -30,12 +29,13 @@ def test_sin_variables_arranca_en_modo_falso(make_settings) -> None:
             "requiere GEMINI_API_KEY",
         ),
         (
+            # Groq quedó fuera del alcance: su prefijo ya no se acepta.
             {"LLM_PROVIDER": "litellm", "LLM_MODEL": "groq/algun-modelo"},
-            "requiere GROQ_API_KEY",
+            "usa el prefijo gemini/",
         ),
         (
             {"LLM_PROVIDER": "litellm", "LLM_MODEL": "openai/gpt", "GEMINI_API_KEY": "x"},
-            "usa el prefijo gemini/ o groq/",
+            "usa el prefijo gemini/",
         ),
         ({"EMBEDDING_DIM": "1536"}, "no coincide con el esquema"),
         ({"LLM_PROVIDER": "openai"}, "llm_provider"),
@@ -92,9 +92,9 @@ def test_ignora_variables_ajenas_del_env_compartido(make_settings) -> None:
 
 def test_lee_un_archivo_env(tmp_path) -> None:
     env_file = tmp_path / ".env"
-    env_file.write_text("LLM_PROVIDER=litellm\nLLM_MODEL=groq/modelo\nGROQ_API_KEY=k\n")
+    env_file.write_text("LLM_PROVIDER=litellm\nLLM_MODEL=gemini/modelo\nGEMINI_API_KEY=k\n")
 
     s = Settings(_env_file=env_file)
 
     assert s.llm_provider == "litellm"
-    assert s.llm_model == "groq/modelo"
+    assert s.llm_model == "gemini/modelo"

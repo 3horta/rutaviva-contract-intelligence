@@ -1,4 +1,4 @@
-"""Spike de proveedores reales (T0.2-T0.4). No forma parte de la app.
+"""Spike de proveedores reales (T0.2-T0.3). No forma parte de la app.
 
 Lee las claves del .env de la raíz del repo. Nunca imprime las claves.
 
@@ -6,19 +6,15 @@ Uso (desde backend/):
     uv run --group spike python scripts/spike_providers.py gemini-models
     uv run --group spike python scripts/spike_providers.py gemini-llm --model <id-flash>
     uv run --group spike python scripts/spike_providers.py gemini-embed
-    uv run --group spike python scripts/spike_providers.py groq-models
-    uv run --group spike python scripts/spike_providers.py groq-llm --model <id-groq>
 """
 
 from __future__ import annotations
 
 import argparse
-import json
 import math
 import os
 import sys
 import time
-import urllib.request
 from pathlib import Path
 
 from pydantic import BaseModel
@@ -172,36 +168,6 @@ def gemini_embed(_: argparse.Namespace) -> None:
         print(f"LiteLLM falló: {type(exc).__name__}: {exc}")
 
 
-# --- Groq ---
-
-
-def groq_models(_: argparse.Namespace) -> None:
-    req = urllib.request.Request(
-        "https://api.groq.com/openai/v1/models",
-        headers={"Authorization": f"Bearer {require_key('GROQ_API_KEY')}"},
-    )
-    with urllib.request.urlopen(req, timeout=15) as r:
-        data = json.load(r)
-    for m in sorted(data["data"], key=lambda m: m["id"]):
-        print(f"{m['id']:50} ctx={m.get('context_window')}")
-
-
-def groq_llm(args: argparse.Namespace) -> None:
-    import litellm
-
-    litellm.suppress_debug_info = True
-    start = time.perf_counter()
-    resp = litellm.completion(
-        model=f"groq/{args.model}",
-        messages=[{"role": "user", "content": prompt()}],
-        response_format={"type": "json_object"},
-        api_key=require_key("GROQ_API_KEY"),
-        timeout=30,
-    )
-    check_answer(resp.choices[0].message.content, time.perf_counter() - start)
-    print("Tokens:", resp.usage.prompt_tokens, "entrada /", resp.usage.completion_tokens, "salida")
-
-
 def main() -> None:
     load_env()
     parser = argparse.ArgumentParser(
@@ -213,10 +179,6 @@ def main() -> None:
     p.add_argument("--model", required=True)
     p.set_defaults(func=gemini_llm)
     sub.add_parser("gemini-embed").set_defaults(func=gemini_embed)
-    sub.add_parser("groq-models").set_defaults(func=groq_models)
-    p = sub.add_parser("groq-llm")
-    p.add_argument("--model", required=True)
-    p.set_defaults(func=groq_llm)
     args = parser.parse_args()
     args.func(args)
 

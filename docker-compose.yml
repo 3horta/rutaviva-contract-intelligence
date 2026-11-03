@@ -1,13 +1,34 @@
 # Starts without .env: every value has a default that works in fake mode.
+#
+#   docker compose up        db, redis -> migrate (one-shot) -> api, worker
+#                            + otel-collector -> jaeger (traces UI on :16686)
+#
+# Every published port listens on 127.0.0.1 only and can be moved with a *_HOST_PORT
+# variable (e.g. API_HOST_PORT=8100 docker compose up).
 name: rutaviva
 
+# Shared by migrate, api and worker. `environment` wins over the optional `.env`, so the
+# in-network addresses below cannot be overridden by accident with localhost ones.
 x-backend-env: &backend-env
-  # App role, subject to RLS. The initial migration creates it with these
-  # credentials. The owner (POSTGRES_USER) will only be used by the `migrate` service.
+  # App role, subject to RLS. The initial migration creates it with these credentials.
   DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-rutaviva_app}:${APP_DB_PASSWORD:-rutaviva_app}@db:5432/${POSTGRES_DB:-rutaviva}
   REDIS_URL: redis://redis:6379/0
   LLM_PROVIDER: ${LLM_PROVIDER:-fake}
-  EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-fake}
+  EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-local}
+  FILES_DIR: /data/files
+  JWT_SECRET_FILE: /run/rutaviva/jwt_secret
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+# One image for migrate, api and worker (see backend/Dockerfile); only the command changes.
+# The three services build the same context, so BuildKit builds it once and the three
+# tags point to the same image.
+x-backend-build: &backend-build
+  context: ./backend
+
+x-backend-env-file: &backend-env-file
+  - path: .env
+    required: false
 
 services:
   db:
@@ -36,19 +57,97 @@ services:
       timeout: 3s
       retries: 10
 
-  api:
-    build: ./backend
-    environment: *backend-env
-    env_file:
-      - path: .env
-        required: false
-    ports:
-      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
+  # One-shot: JWT key (first start only) -> migrations -> demo tenants. Every step is
+  # idempotent, so it runs on every `up`. The only service with the owner credentials.
+  migrate:
+    build: *backend-build
+    command: >-
+      sh -c "python scripts/init_secrets.py
+      && alembic upgrade head
+      && python scripts/seed.py"
+    environment:
+      <<: *backend-env
+      MIGRATIONS_DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rutaviva}:${POSTGRES_PASSWORD:-rutaviva}@db:5432/${POSTGRES_DB:-rutaviva}
+      OTEL_SERVICE_NAME: rutaviva-migrate
+    env_file: *backend-env-file
+    volumes:
+      - secrets:/run/rutaviva
+    # Not a long-running service: no healthcheck (the image's one is for the API).
+    healthcheck:
+      disable: true
+    restart: "no"
     depends_on:
       db:
         condition: service_healthy
+
+  api:
+    build: *backend-build
+    environment:
+      <<: *backend-env
+      OTEL_SERVICE_NAME: rutaviva-api
+    env_file: *backend-env-file
+    ports:
+      - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
+    volumes:
+      - files:/data/files
+      - secrets:/run/rutaviva:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
       redis:
         condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  worker:
+    build: *backend-build
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel", "INFO", "--concurrency", "2"]
+    environment:
+      <<: *backend-env
+      OTEL_SERVICE_NAME: rutaviva-worker
+    env_file: *backend-env-file
+    volumes:
+      - files:/data/files
+    # `inspect ping` asks this worker, by node name, to answer through the broker.
+    healthcheck:
+      test: ["CMD-SHELL", "celery -A app.worker.celery_app inspect ping -d celery@$$HOSTNAME --timeout 10 > /dev/null"]
+      interval: 30s
+      timeout: 20s
+      start_period: 60s
+      retries: 3
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+
+  # frontend:
+  #   (placeholder: the web UI service goes here)
+
+  # The collector and Jaeger images are distroless (no shell, no curl), so they have no
+  # healthcheck. The apps do not need them to be up: spans are dropped if they are down.
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.130.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./infra/otel-collector.yaml:/etc/otelcol-contrib/config.yaml:ro
+    ports:
+      - "127.0.0.1:${OTLP_GRPC_HOST_PORT:-4317}:4317"
+      - "127.0.0.1:${OTLP_HTTP_HOST_PORT:-4318}:4318"
+    depends_on:
+      - jaeger
+
+  # All-in-one Jaeger v2 with in-memory storage: traces are lost on restart (demo only).
+  jaeger:
+    image: jaegertracing/jaeger:2.8.0
+    ports:
+      - "127.0.0.1:${JAEGER_UI_HOST_PORT:-16686}:16686"
 
 volumes:
   pgdata:
+  # Uploaded PDFs: written by the api, read by the worker.
+  files:
+  # The generated JWT signing key: written by migrate, read-only for the api.
+  secrets:

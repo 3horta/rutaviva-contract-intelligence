@@ -8,3 +8,8 @@
 htmlcov/
 .env
 .env.*
+# Not needed at runtime: tests, local runtime data (uploads, generated JWT key).
+tests/
+var/
+Dockerfile
+.dockerignore

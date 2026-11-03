@@ -1,0 +1,147 @@
+"""Calibrate the thresholds of the extractive LLM with the evaluation set.
+
+Runs in the Docker image (needs Docling and the local embedding model), all in memory:
+no database, no worker. For each tenant it extracts and chunks the sample PDFs as the
+worker does, embeds the chunks, and for each question of sample_data/questions.yaml:
+  1. retrieves the top chunks by cosine (vector branch only: an approximation of the
+     hybrid search, enough to compare thresholds);
+  2. scores every sentence of those chunks against the question;
+  3. evaluates a grid of (floor, margin): an answerable question is right when it is
+     answered and one of `answer_has_any` is in a kept sentence; an unanswerable one is
+     right when the best sentence is below the floor.
+
+    docker compose run --rm --no-deps \
+      -v ./sample_data:/sample_data:ro api python scripts/calibrate_extractive.py
+"""
+
+import argparse
+import json
+import uuid
+from pathlib import Path
+
+import yaml
+
+from app.core.config import Settings
+from app.core.errors import IngestionError
+from app.ingestion.chunking import chunk_document
+from app.ingestion.extract import DoclingExtractor
+from app.ingestion.pipeline import title_from_filename
+from app.providers import get_embeddings
+from app.providers.llm.base import ContextChunk, PromptInput
+from app.providers.llm.extractive import ExtractiveLLM
+
+
+def _load_tenant(path: Path, extractor, embeddings, settings):
+    chunks, vectors = [], []
+    for pdf in sorted(path.glob("*.pdf")):
+        try:
+            doc = extractor.extract(pdf.read_bytes())
+        except IngestionError as exc:  # corrupt / scanned samples are expected to fail
+            print(f"  skip {pdf.name}: {type(exc).__name__}")
+            continue
+        drafts = chunk_document(
+            doc,
+            title=title_from_filename(pdf.name),
+            max_chars=settings.chunk_max_chars,
+            overlap_chars=settings.chunk_overlap_chars,
+        )
+        document_id = uuid.uuid4()
+        vectors += embeddings.embed_documents([d.embed_text for d in drafts])
+        chunks += [
+            ContextChunk(uuid.uuid4(), document_id, pdf.name, d.page, d.content) for d in drafts
+        ]
+        print(f"  {pdf.name}: {len(drafts)} chunks")
+    return chunks, vectors
+
+
+def _retrieve(query, chunks, vectors, settings):
+    scored = sorted(
+        zip(chunks, vectors, strict=True),
+        key=lambda cv: -sum(q * v for q, v in zip(query, cv[1], strict=True)),
+    )
+    kept, per_doc = [], {}
+    for chunk, _ in scored:
+        if per_doc.get(chunk.document_id, 0) >= settings.max_chunks_per_document:
+            continue
+        kept.append(chunk)
+        per_doc[chunk.document_id] = per_doc.get(chunk.document_id, 0) + 1
+        if len(kept) == settings.retrieval_k:
+            break
+    return kept
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--data", type=Path, default=Path("/sample_data"))
+    args = parser.parse_args()
+
+    settings = Settings(_env_file=None, embeddings_provider="local")
+    embeddings = get_embeddings(settings)
+    extractor = DoclingExtractor(settings.docling_artifacts_path)
+    # Score every usable sentence: no floor, no margin, no cap.
+    scorer = ExtractiveLLM(
+        embeddings,
+        min_similarity=-1,
+        margin=2,
+        max_sentences=1000,
+        high_similarity=2,
+        min_sentence_words=settings.extractive_min_sentence_words,
+    )
+
+    spec = yaml.safe_load((args.data / "questions.yaml").read_text())
+    corpus = {}
+    for tenant in sorted({q["tenant"] for q in spec["questions"]}):
+        print(f"tenant {tenant}")
+        corpus[tenant] = _load_tenant(args.data / "pdfs" / tenant, extractor, embeddings, settings)
+
+    rows = []
+    print("\nid | kind | expected | top similarities | rank of first sentence with the answer")
+    for q in spec["questions"]:
+        chunks, vectors = corpus[q["tenant"]]
+        context = _retrieve(embeddings.embed_query(q["question"]), chunks, vectors, settings)
+        result = scorer.generate(PromptInput(question=q["question"], chunks=context), 1)
+        payload = json.loads(result.text)
+        quotes = [c["quote"] for c in payload["citations"]]
+        sims = [float(s) for s in result.extra["top_similarities"].split(",") if s]
+        # All similarities, not only the top 5 of `extra`: recompute for the ranking.
+        query = embeddings.embed_query(q["question"])
+        all_sims = [
+            sum(a * b for a, b in zip(query, v, strict=True))
+            for v in embeddings.embed_documents(quotes)
+        ]
+        expect = q["expect"]
+        needles = [s.lower() for s in expect.get("answer_has_any", [])]
+        hit = next(
+            (i for i, quote in enumerate(quotes) if any(n in quote.lower() for n in needles)),
+            None,
+        )
+        rows.append((q, expect["outcome"], all_sims, hit))
+        print(
+            f"{q['id']} | {q['kind']} | {expect['outcome']} | "
+            f"{', '.join(f'{s:.3f}' for s in sims[:4])} | {hit}"
+        )
+
+    print("\nfloor margin | answerable ok | unanswerable ok | total ok | avg sentences")
+    results = []
+    for floor in [x / 100 for x in range(55, 86)]:
+        for margin in [x / 100 for x in range(1, 9)]:
+            ans_ok = unans_ok = sentences = answered = 0
+            for _, outcome, sims, hit in rows:
+                if not sims or sims[0] < floor:
+                    unans_ok += outcome == "insufficient_evidence"
+                    continue
+                kept = [i for i, s in enumerate(sims) if s >= sims[0] - margin][:3]
+                answered += 1
+                sentences += len(kept)
+                ans_ok += outcome == "answered" and hit is not None and hit in kept
+            results.append(
+                (ans_ok + unans_ok, ans_ok, unans_ok, floor, margin, sentences / max(answered, 1))
+            )
+    n_ans = sum(r[1] == "answered" for r in rows)
+    print(f"(answerable: {n_ans}, unanswerable: {len(rows) - n_ans})")
+    for total, a, u, floor, margin, avg in sorted(results, key=lambda r: (-r[0], -r[3], r[4]))[:15]:
+        print(f"{floor:.2f} {margin:.2f} | {a} | {u} | {total} | {avg:.2f}")
+
+
+if __name__ == "__main__":
+    main()

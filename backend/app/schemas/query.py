@@ -1,9 +1,9 @@
 """API and LLM models for questions and answers."""
 
 import uuid
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StringConstraints
 
 Confidence = Literal["low", "medium", "high"]
 AnswerStatusOut = Literal["answered", "insufficient_evidence"]
@@ -35,7 +35,10 @@ class LLMAnswer(BaseModel):
 
 
 class QueryRequest(BaseModel):
-    question: str = Field(min_length=1, max_length=2000)
+    # Stripped before the length check: a whitespace-only question is a 422, not a search.
+    question: Annotated[
+        str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
+    ]
     conversation_id: uuid.UUID | None = None
 
 

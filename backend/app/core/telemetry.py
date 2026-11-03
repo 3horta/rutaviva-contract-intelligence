@@ -7,8 +7,11 @@
 
 What gets traced automatically:
 - FastAPI: one server span per request.
-- SQLAlchemy: one span per query. Engines are created lazily (`session_factory_for`), so
-  `create_engine` itself is instrumented and every engine created afterwards gets spans.
+- SQLAlchemy: one span per query, from listeners registered on the `Engine` *class*, so
+  they apply to every engine, including the ones `session_factory_for` creates lazily.
+  (The packaged SQLAlchemy instrumentor is not used: it declares support only up to
+  SQLAlchemy < 2.1, needs `greenlet` for its asyncio hook, and patches `create_engine`,
+  which misses modules that imported it before telemetry was configured.)
 - Celery: the producer (the API) injects the W3C `traceparent` into the message headers
   and the worker continues the same trace, so an upload and its ingestion share one trace.
 
@@ -18,16 +21,18 @@ logs a warning in its own thread: requests and tasks are never blocked or failed
 """
 
 import logging
+from typing import Any
 
 from fastapi import FastAPI
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.celery import CeleryInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.instrumentation.sqlalchemy import SQLAlchemyInstrumentor
 from opentelemetry.sdk.resources import SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
+from opentelemetry.trace import SpanKind, Status, StatusCode
+from sqlalchemy import Engine, event
 
 from app.core.config import Settings
 
@@ -60,8 +65,7 @@ def configure_telemetry(service_name: str, settings: Settings) -> None:
             provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
 
-    # Without `engine=`, the instrumentor patches `create_engine`: covers lazy engines.
-    SQLAlchemyInstrumentor().instrument()
+    _trace_sql_queries()
     # Producer side in the API (injects the trace context); consumer side in the worker.
     CeleryInstrumentor().instrument()
 
@@ -82,3 +86,50 @@ def instrument_fastapi(app: FastAPI) -> None:
     (`curl /health`, then look for the trace in Jaeger).
     """
     FastAPIInstrumentor.instrument_app(app)
+
+
+# --- SQL query spans ---------------------------------------------------------------------
+
+_db_tracer = trace.get_tracer("rutaviva.db")
+
+
+def _trace_sql_queries() -> None:
+    """One CLIENT span per SQL statement, child of whatever span is current.
+
+    The span carries the SQL text with its placeholders, never the bound parameters
+    (they can hold document content).
+    """
+    event.listen(Engine, "before_cursor_execute", _start_query_span)
+    event.listen(Engine, "after_cursor_execute", _end_query_span)
+    event.listen(Engine, "handle_error", _fail_query_span)
+
+
+def _start_query_span(conn: Any, cursor: Any, statement: str, *_: Any) -> None:
+    # "SELECT", "INSERT"...: a short span name; the full statement goes in an attribute.
+    operation = statement.split(maxsplit=1)[0].upper() if statement.strip() else "SQL"
+    span = _db_tracer.start_span(
+        operation,
+        kind=SpanKind.CLIENT,
+        attributes={
+            "db.system": conn.engine.dialect.name,
+            "db.name": conn.engine.url.database or "",
+            "db.statement": statement,
+        },
+    )
+    # The connection's `info` dict lives as long as the DBAPI connection: a safe place to
+    # hand the span over to the "after" listener of the same statement.
+    conn.info["otel_query_span"] = span
+
+
+def _end_query_span(conn: Any, *_: Any) -> None:
+    span = conn.info.pop("otel_query_span", None)
+    if span is not None:
+        span.end()
+
+
+def _fail_query_span(context: Any) -> None:
+    connection = context.connection
+    span = connection.info.pop("otel_query_span", None) if connection is not None else None
+    if span is not None:
+        span.set_status(Status(StatusCode.ERROR, type(context.original_exception).__name__))
+        span.end()

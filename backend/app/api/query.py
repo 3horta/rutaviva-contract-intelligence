@@ -32,11 +32,12 @@ def query(
 ) -> QueryResponse:
     # The tenant comes only from the verified token (get_current_tenant), never from
     # the request body; the session already has it set for RLS.
+    embeddings = get_embeddings(settings)
     return answer_question(
         body.question,
         tenant_id=tenant.id,
         session=session,
-        embeddings=get_embeddings(settings),
-        llm=get_llm(settings),
+        embeddings=embeddings,
+        llm=get_llm(settings, embeddings),
         settings=settings,
     )

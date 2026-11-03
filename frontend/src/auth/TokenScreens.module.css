@@ -1,0 +1,44 @@
+.screen {
+  display: grid;
+  place-items: center;
+  min-height: calc(100vh - var(--rv-topbar-height) - 48px);
+}
+
+.card {
+  width: min(560px, 100%);
+  padding: 28px;
+  text-align: center;
+}
+
+.card form {
+  text-align: left;
+  margin-top: 18px;
+}
+
+.icon {
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin: 0 auto 12px;
+  border-radius: 50%;
+  background: var(--rv-primary-soft);
+  color: var(--rv-primary);
+}
+
+.danger {
+  background: var(--rv-danger-soft);
+  color: var(--rv-danger);
+}
+
+.title {
+  margin: 0 0 8px;
+  font-size: 1.3rem;
+}
+
+.text {
+  margin: 0;
+  color: var(--rv-muted);
+  font-size: 0.88rem;
+  line-height: 1.55;
+}

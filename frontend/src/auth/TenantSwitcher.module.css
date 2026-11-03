@@ -1,0 +1,51 @@
+.switcher {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+}
+
+.icon {
+  flex: none;
+  color: var(--rv-muted);
+  margin-right: 2px;
+}
+
+.select {
+  max-width: 240px;
+  min-height: 34px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.dialog {
+  width: min(520px, calc(100vw - 32px));
+  padding: 18px 20px 20px;
+  border: 1px solid var(--rv-border);
+  border-radius: var(--rv-radius-lg);
+  background: var(--rv-surface);
+  color: var(--rv-text);
+  box-shadow: var(--rv-shadow-lg);
+}
+
+.dialog::backdrop {
+  background: var(--rv-overlay);
+}
+
+.dialogHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.dialogTitle {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+@media (max-width: 600px) {
+  .select {
+    max-width: 140px;
+  }
+}

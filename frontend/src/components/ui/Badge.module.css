@@ -1,0 +1,60 @@
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 9px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 650;
+  line-height: 1.3;
+  white-space: nowrap;
+}
+
+.dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex: none;
+}
+
+/* A moving status: the dot pulses so it reads as "in progress" without colour. */
+.live .dot {
+  animation: pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  50% {
+    opacity: 0.3;
+  }
+}
+
+.neutral {
+  background: var(--rv-neutral-soft);
+  color: var(--rv-neutral);
+}
+
+.pending {
+  background: var(--rv-purple-soft);
+  color: var(--rv-purple);
+}
+
+.processing {
+  background: var(--rv-info-soft);
+  color: var(--rv-info);
+}
+
+.success {
+  background: var(--rv-success-soft);
+  color: var(--rv-success);
+}
+
+.warning {
+  background: var(--rv-warning-soft);
+  color: var(--rv-warning);
+}
+
+.failed {
+  background: var(--rv-danger-soft);
+  color: var(--rv-danger);
+}

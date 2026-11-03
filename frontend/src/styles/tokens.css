@@ -1,0 +1,104 @@
+/*
+ * Design tokens. Every colour in the app comes from here: components never
+ * hard-code one, so the dark palette below is the whole of dark mode.
+ *
+ * Tones come in pairs: a strong colour for text/icons and a soft one for the
+ * background behind it (badges, KPI icons, alerts).
+ */
+:root {
+  --rv-primary: #0f6e7a;
+  --rv-primary-strong: #0a5059;
+  --rv-primary-soft: #e6f3f4;
+  --rv-primary-soft-border: #b5dade;
+  --rv-on-primary: #ffffff;
+
+  --rv-text: #1f2836;
+  --rv-text-soft: #4b5566;
+  --rv-muted: #717d91;
+
+  --rv-bg: #f3f5f8;
+  --rv-surface: #ffffff;
+  --rv-surface-alt: #f9fafb;
+  --rv-surface-sunken: #f1f3f7;
+  --rv-border: #e0e5eb;
+  --rv-input-border: #c8d0dc;
+  --rv-overlay: rgb(15 20 28 / 45%);
+
+  --rv-success: #17804a;
+  --rv-success-soft: #e7f6ee;
+  --rv-warning: #b86410;
+  --rv-warning-soft: #fdf1df;
+  --rv-danger: #c0303b;
+  --rv-danger-text: #a3222d;
+  --rv-danger-soft: #fdeaec;
+  --rv-danger-soft-border: #f3c3c8;
+  --rv-info: #3462cf;
+  --rv-info-soft: #ecf2ff;
+  --rv-purple: #7050b5;
+  --rv-purple-soft: #f1edfd;
+  --rv-neutral: #586174;
+  --rv-neutral-soft: #edf0f4;
+
+  /* The PDF viewer keeps a dark chrome in both themes: a page reads best on it. */
+  --rv-viewer-chrome: #2e2f31;
+  --rv-viewer-stage: #505457;
+  --rv-viewer-text: #ffffff;
+  --rv-highlight-border: #e8590c;
+  --rv-highlight-fill: rgb(232 89 12 / 18%);
+
+  --rv-focus-ring: rgb(15 110 122 / 22%);
+  --rv-radius-sm: 7px;
+  --rv-radius: 10px;
+  --rv-radius-lg: 13px;
+  --rv-shadow-sm: 0 4px 20px rgb(15 23 42 / 8%);
+  --rv-shadow-lg: 0 14px 38px rgb(31 42 62 / 16%);
+
+  --rv-font: "Segoe UI", system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
+  --rv-font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+
+  --rv-sidebar-width: 220px;
+  --rv-topbar-height: 64px;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --rv-primary: #4fb3bf;
+  --rv-primary-strong: #2f8f9b;
+  --rv-primary-soft: rgb(79 179 191 / 16%);
+  --rv-primary-soft-border: rgb(79 179 191 / 40%);
+  --rv-on-primary: #0b1a1d;
+
+  --rv-text: #e3e7ee;
+  --rv-text-soft: #c0c8d4;
+  --rv-muted: #929eb2;
+
+  --rv-bg: #0f141c;
+  --rv-surface: #171e29;
+  --rv-surface-alt: #1c2431;
+  --rv-surface-sunken: #121821;
+  --rv-border: #293344;
+  --rv-input-border: #3a4558;
+  --rv-overlay: rgb(5 8 12 / 60%);
+
+  --rv-success: #48c386;
+  --rv-success-soft: rgb(72 195 134 / 16%);
+  --rv-warning: #eea04e;
+  --rv-warning-soft: rgb(238 160 78 / 16%);
+  --rv-danger: #ef727c;
+  --rv-danger-text: #f49ca4;
+  --rv-danger-soft: rgb(239 114 124 / 16%);
+  --rv-danger-soft-border: rgb(239 114 124 / 40%);
+  --rv-info: #7ca1f5;
+  --rv-info-soft: rgb(124 161 245 / 16%);
+  --rv-purple: #b39df0;
+  --rv-purple-soft: rgb(179 157 240 / 16%);
+  --rv-neutral: #a9b3c3;
+  --rv-neutral-soft: #253042;
+
+  --rv-focus-ring: rgb(79 179 191 / 30%);
+  --rv-shadow-sm: 0 4px 20px rgb(0 0 0 / 35%);
+  --rv-shadow-lg: 0 14px 38px rgb(0 0 0 / 45%);
+
+  color-scheme: dark;
+}

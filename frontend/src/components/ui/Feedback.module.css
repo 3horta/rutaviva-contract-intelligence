@@ -1,0 +1,106 @@
+.spinner {
+  display: inline-block;
+  flex: none;
+  border: 2.5px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 50%;
+  animation: rv-spin 0.75s linear infinite;
+}
+
+/* Centred block for loading, empty and waiting states. */
+.state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 220px;
+  padding: 24px;
+  text-align: center;
+  background: var(--rv-surface);
+  border: 1px solid var(--rv-border);
+  border-radius: var(--rv-radius-lg);
+  color: var(--rv-muted);
+}
+
+.compact {
+  min-height: 140px;
+  border: 0;
+  background: none;
+}
+
+.stateIcon {
+  color: var(--rv-primary);
+}
+
+.stateTitle {
+  margin: 4px 0 0;
+  color: var(--rv-text);
+  font-size: 1.05rem;
+}
+
+.stateText {
+  margin: 0;
+  max-width: 480px;
+  font-size: 0.86rem;
+  line-height: 1.5;
+}
+
+.alert {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 4px 10px;
+  margin: 0 0 16px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.alert svg {
+  margin-top: 2px;
+}
+
+.error {
+  background: var(--rv-danger-soft);
+  color: var(--rv-danger-text);
+  border: 1px solid var(--rv-danger-soft-border);
+}
+
+.info {
+  background: var(--rv-info-soft);
+  color: var(--rv-info);
+  border: 1px solid transparent;
+}
+
+.alertTitle {
+  margin: 0;
+  font-weight: 650;
+}
+
+.alertBody {
+  margin: 0;
+}
+
+.alertContent {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.reference {
+  font-size: 0.72rem;
+  opacity: 0.8;
+  overflow-wrap: anywhere;
+}
+
+.reference code {
+  background: none;
+  padding: 0;
+}
+
+.alertActions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}

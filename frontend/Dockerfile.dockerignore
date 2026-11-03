@@ -1,0 +1,12 @@
+# Used by BuildKit for frontend/Dockerfile (context: repository root).
+# Allow-list: only what the build needs; never secrets, never node_modules.
+*
+!frontend/package.json
+!frontend/package-lock.json
+!frontend/index.html
+!frontend/tsconfig.json
+!frontend/tsconfig.app.json
+!frontend/tsconfig.node.json
+!frontend/vite.config.ts
+!frontend/src
+!infra/nginx.conf

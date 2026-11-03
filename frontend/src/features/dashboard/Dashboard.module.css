@@ -1,0 +1,147 @@
+.main {
+  display: grid;
+  grid-template-columns: minmax(0, 1.7fr) minmax(260px, 1fr);
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.aside {
+  align-self: start;
+}
+
+.textLink {
+  color: var(--rv-primary);
+  font-size: 0.82rem;
+  text-decoration: none;
+}
+
+.textLink:hover {
+  text-decoration: underline;
+}
+
+/* Status distribution */
+.bars {
+  display: grid;
+  gap: 16px;
+  margin: 6px 0 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.barRow {
+  display: grid;
+  grid-template-columns: 82px minmax(0, 1fr) 76px;
+  align-items: center;
+  gap: 10px;
+  font-size: 0.82rem;
+}
+
+.barLabel {
+  color: var(--rv-text-soft);
+}
+
+.barTrack {
+  height: 22px;
+  border-radius: 7px;
+  background: var(--rv-surface-sunken);
+  overflow: hidden;
+}
+
+.barFill {
+  display: block;
+  height: 100%;
+  min-width: 3px;
+  border-radius: 7px;
+  transition: width 0.4s ease;
+}
+
+.pending {
+  background: var(--rv-purple);
+}
+
+.processing {
+  background: var(--rv-info);
+}
+
+.success {
+  background: var(--rv-success);
+}
+
+.failed {
+  background: var(--rv-danger);
+}
+
+.barValue {
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.barValue small {
+  color: var(--rv-muted);
+  font-weight: 400;
+}
+
+/* Latest uploads */
+.recent {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.recentRow {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 110px 150px 18px;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 4px;
+  border-top: 1px solid var(--rv-border);
+  color: inherit;
+  font-size: 0.84rem;
+  text-decoration: none;
+}
+
+.recentRow:hover {
+  background: var(--rv-surface-alt);
+}
+
+.recentRow time,
+.recentRow > svg {
+  color: var(--rv-muted);
+}
+
+.recentFile {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+  font-weight: 600;
+}
+
+.recentFile svg {
+  flex: none;
+  color: var(--rv-primary);
+}
+
+.recentFile span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1000px) {
+  .main {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 700px) {
+  .recentRow {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .recentRow time,
+  .recentRow > svg {
+    display: none;
+  }
+}

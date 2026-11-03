@@ -1,5 +1,7 @@
+import pytest
 from fastapi.testclient import TestClient
 
+from app.core.auth import AuthConfigError
 from app.main import create_app
 
 
@@ -34,3 +36,9 @@ def test_health_shows_real_providers_without_exposing_keys(make_settings) -> Non
     assert body["llm_model"] == "gemini/gemini-3.5-flash"
     assert body["embedding_model"] == "gemini-embedding-001@768"
     assert "super-secret-key" not in response.text
+
+
+def test_app_does_not_start_without_a_signing_key(make_settings, monkeypatch) -> None:
+    monkeypatch.delenv("JWT_SECRET")
+    with pytest.raises(AuthConfigError):
+        create_app(make_settings(JWT_SECRET_FILE="/nonexistent/jwt_secret"))

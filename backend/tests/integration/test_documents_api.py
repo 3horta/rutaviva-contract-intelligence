@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.api import documents as documents_module
 from app.api.deps import get_dispatcher, get_storage
-from app.core.auth import issue_token
+from app.core.auth import AuthConfigError, issue_token
 from app.core.config import Settings
 from app.db.models import Chunk, Document
 from app.db.session import tenant_transaction
@@ -184,15 +184,22 @@ def test_tenant_name_must_match(api: Api) -> None:
     _assert_problem(response, 401)
 
 
-def test_no_signing_key_is_503_not_401(api: Api) -> None:
-    headers = api.headers(api.tenant_a)
-    # Same app, but the server lost its key (e.g. the secret file was not mounted).
+def test_api_does_not_start_without_a_signing_key(api: Api) -> None:
+    # Fail fast, like invalid settings: no key means no request could be authenticated.
     broken = api.settings.model_copy(update={"jwt_secret": None})
-    app = create_app(broken)
+    with pytest.raises(AuthConfigError):
+        create_app(broken)
 
-    response = TestClient(app).get("/documents", headers=headers)
 
-    _assert_problem(response, 503)
+def test_key_lost_after_startup_is_503_not_401(api: Api, monkeypatch) -> None:
+    # Safety net in the dependency: the key file disappears while the API is running.
+    headers = api.headers(api.tenant_a)
+
+    def key_is_gone(*_args, **_kwargs):
+        raise AuthConfigError("gone")
+
+    monkeypatch.setattr("app.api.deps.verify_token", key_is_gone)
+    _assert_problem(api.client.get("/documents", headers=headers), 503)
 
 
 # --- Upload -----------------------------------------------------------------------------

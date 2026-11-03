@@ -3,7 +3,7 @@ from fastapi.testclient import TestClient
 from app.main import create_app
 
 
-def test_health_en_modo_falso(make_settings) -> None:
+def test_health_in_fake_mode(make_settings) -> None:
     client = TestClient(create_app(make_settings()))
 
     response = client.get("/health")
@@ -18,12 +18,12 @@ def test_health_en_modo_falso(make_settings) -> None:
     }
 
 
-def test_health_muestra_proveedores_reales_sin_exponer_claves(make_settings) -> None:
+def test_health_shows_real_providers_without_exposing_keys(make_settings) -> None:
     settings = make_settings(
         LLM_PROVIDER="litellm",
         LLM_MODEL="gemini/gemini-3.5-flash",
         EMBEDDINGS_PROVIDER="gemini",
-        GEMINI_API_KEY="clave-super-secreta",
+        GEMINI_API_KEY="super-secret-key",
     )
     client = TestClient(create_app(settings))
 
@@ -33,4 +33,4 @@ def test_health_muestra_proveedores_reales_sin_exponer_claves(make_settings) -> 
     assert body["llm_provider"] == "litellm"
     assert body["llm_model"] == "gemini/gemini-3.5-flash"
     assert body["embedding_model"] == "gemini-embedding-001@768"
-    assert "clave-super-secreta" not in response.text
+    assert "super-secret-key" not in response.text

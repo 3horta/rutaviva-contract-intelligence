@@ -1,11 +1,11 @@
 # rutaviva-contract-intelligence
 
-Plataforma de inteligencia sobre contratos de RutaViva.
+Contract intelligence platform for RutaViva.
 
-## Estructura
+## Structure
 
-- `backend/` — API FastAPI, ingesta, retrieval híbrido, generación, worker Celery
+- `backend/` — FastAPI API, ingestion, hybrid retrieval, generation, Celery worker
 - `frontend/` — Vite + React + TS
-- `infra/` — configuración de OpenTelemetry Collector y Nginx
-- `sample_data/` — generador de PDFs de ejemplo y preguntas de evaluación
-- `notes/` — decisiones y bitácora de uso de IA
+- `infra/` — OpenTelemetry Collector and Nginx configuration
+- `sample_data/` — sample PDF generator and evaluation questions
+- `notes/` — decisions and AI usage log

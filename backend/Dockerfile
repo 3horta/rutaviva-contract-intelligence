@@ -1,6 +1,6 @@
 # syntax=docker/dockerfile:1
 
-# --- Etapa 1: dependencias con uv ---
+# --- Stage 1: dependencies with uv ---
 FROM python:3.12-slim AS builder
 
 COPY --from=ghcr.io/astral-sh/uv:0.13.7 /uv /usr/local/bin/uv
@@ -11,12 +11,12 @@ ENV UV_COMPILE_BYTECODE=1 \
 
 WORKDIR /app
 
-# Primero solo los manifiestos: la capa de dependencias se cachea mientras no cambie el lock.
+# Manifests first: the dependency layer stays cached as long as the lock does not change.
 COPY pyproject.toml uv.lock .python-version ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-install-project
 
-# --- Etapa 2: runtime sin uv ni herramientas de build ---
+# --- Stage 2: runtime without uv or build tools ---
 FROM python:3.12-slim AS runtime
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

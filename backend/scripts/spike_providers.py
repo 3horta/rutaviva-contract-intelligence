@@ -1,8 +1,8 @@
-"""Spike de proveedores reales (T0.2-T0.3). No forma parte de la app.
+"""Real-provider spike. Not part of the app.
 
-Lee las claves del .env de la raíz del repo. Nunca imprime las claves.
+Reads the keys from the .env at the repo root. Never prints the keys.
 
-Uso (desde backend/):
+Usage (from backend/):
     uv run --group spike python scripts/spike_providers.py gemini-models
     uv run --group spike python scripts/spike_providers.py gemini-llm --model <id-flash>
     uv run --group spike python scripts/spike_providers.py gemini-embed
@@ -23,15 +23,15 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 EMBEDDING_MODEL = os.getenv("SPIKE_EMBEDDING_MODEL", "gemini-embedding-001")
 DIM = 768
 
-QUESTION = "¿Qué penalización aplica si el proveedor entrega tarde?"
+QUESTION = "What penalty applies if the supplier delivers late?"
 CONTEXT = (
-    "CLÁUSULA 7. PENALIZACIONES. Por cada día de retraso en la entrega, el proveedor "
-    "pagará una penalización equivalente al 2% del valor del pedido, hasta un máximo del 10%."
+    "CLAUSE 7. PENALTIES. For each day of delay in delivery, the supplier shall pay "
+    "a penalty equal to 2% of the order value, up to a maximum of 10%."
 )
 TEXTS = [
-    "Cláusula de penalización por retraso en la entrega de neumáticos.",
-    "El contrato de mantenimiento de flota se renueva automáticamente cada año.",
-    "El precio del combustible se ajusta mensualmente según el índice oficial.",
+    "Penalty clause for late delivery of tires.",
+    "The fleet maintenance agreement renews automatically every year.",
+    "The fuel price is adjusted monthly according to the official index.",
 ]
 
 
@@ -57,7 +57,7 @@ def load_env() -> None:
 def require_key(name: str) -> str:
     key = os.getenv(name, "")
     if not key:
-        sys.exit(f"Falta {name} en {REPO_ROOT / '.env'}")
+        sys.exit(f"Missing {name} in {REPO_ROOT / '.env'}")
     return key
 
 
@@ -71,18 +71,18 @@ def cosine(a: list[float], b: list[float]) -> float:
 
 def prompt() -> str:
     return (
-        "Responde solo con el contexto. Devuelve JSON con answer, quote (cita literal del "
-        f"contexto) y confidence (low|medium|high).\n\nContexto:\n{CONTEXT}\n\n"
-        f"Pregunta: {QUESTION}"
+        "Answer using only the context. Return JSON with answer, quote (verbatim quote from "
+        f"the context) and confidence (low|medium|high).\n\nContext:\n{CONTEXT}\n\n"
+        f"Question: {QUESTION}"
     )
 
 
 def check_answer(raw: str, latency: float) -> None:
-    print(f"Latencia: {latency:.2f} s")
-    print("Respuesta cruda:", raw)
+    print(f"Latency: {latency:.2f} s")
+    print("Raw response:", raw)
     parsed = SpikeAnswer.model_validate_json(raw)
-    print("JSON válido según el esquema:", parsed.model_dump())
-    print("La cita aparece en el contexto:", parsed.quote in CONTEXT)
+    print("Valid JSON per the schema:", parsed.model_dump())
+    print("Quote appears in the context:", parsed.quote in CONTEXT)
 
 
 # --- Gemini ---
@@ -111,7 +111,7 @@ def gemini_llm(args: argparse.Namespace) -> None:
         timeout=30,
     )
     check_answer(resp.choices[0].message.content, time.perf_counter() - start)
-    print("Tokens:", resp.usage.prompt_tokens, "entrada /", resp.usage.completion_tokens, "salida")
+    print("Tokens:", resp.usage.prompt_tokens, "in /", resp.usage.completion_tokens, "out")
 
 
 def gemini_embed(_: argparse.Namespace) -> None:
@@ -133,15 +133,15 @@ def gemini_embed(_: argparse.Namespace) -> None:
         vecs = [e.values for e in res.embeddings]
         vectors[task] = vecs
         print(
-            f"{task}: lote de {len(TEXTS)} -> {len(vecs)} vectores, "
-            f"dim={len(vecs[0])}, norma={norm(vecs[0]):.4f}, "
+            f"{task}: batch of {len(TEXTS)} -> {len(vecs)} vectors, "
+            f"dim={len(vecs[0])}, norm={norm(vecs[0]):.4f}, "
             f"{time.perf_counter() - start:.2f} s"
         )
     v = vectors["RETRIEVAL_DOCUMENT"][0]
     n = norm(v)
-    print(f"Norma tras normalizar L2: {norm([x / n for x in v]):.4f}")
+    print(f"Norm after L2 normalization: {norm([x / n for x in v]):.4f}")
     print(
-        "Coseno doc vs. query del mismo texto: "
+        "Cosine doc vs. query for the same text: "
         f"{cosine(vectors['RETRIEVAL_DOCUMENT'][0], vectors['RETRIEVAL_QUERY'][0]):.4f}"
     )
 
@@ -158,14 +158,14 @@ def gemini_embed(_: argparse.Namespace) -> None:
             api_key=key,
         )
         lvecs = [d["embedding"] for d in resp.data]
-        print(f"lote de {len(TEXTS)} -> {len(lvecs)} vectores, dim={len(lvecs[0])}")
-        print("¿Respeta la dimensión?", len(lvecs[0]) == DIM)
+        print(f"batch of {len(TEXTS)} -> {len(lvecs)} vectors, dim={len(lvecs[0])}")
+        print("Dimension respected?", len(lvecs[0]) == DIM)
         print(
-            "Coseno con el vector del SDK (mismo texto y tarea): "
+            "Cosine vs. the SDK vector (same text and task): "
             f"{cosine(lvecs[0], vectors['RETRIEVAL_DOCUMENT'][0]):.4f}"
         )
-    except Exception as exc:  # noqa: BLE001 - spike: queremos ver cualquier fallo
-        print(f"LiteLLM falló: {type(exc).__name__}: {exc}")
+    except Exception as exc:  # noqa: BLE001 - spike: we want to see any failure
+        print(f"LiteLLM failed: {type(exc).__name__}: {exc}")
 
 
 def main() -> None:

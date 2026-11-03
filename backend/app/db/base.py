@@ -1,8 +1,8 @@
 from sqlalchemy import MetaData
 from sqlalchemy.orm import DeclarativeBase
 
-# Nombres de restricciones e índices deterministas: Alembic los necesita para poder
-# borrarlos en un downgrade y para que autogenerate no detecte cambios falsos.
+# Deterministic constraint and index names: Alembic needs them to drop them in a
+# downgrade and so that autogenerate does not detect spurious changes.
 NAMING_CONVENTION = {
     "ix": "ix_%(table_name)s_%(column_0_N_name)s",
     "uq": "uq_%(table_name)s_%(column_0_N_name)s",

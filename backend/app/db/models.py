@@ -1,13 +1,13 @@
-"""Modelos de la base de datos (sección 6 del plan y D-019).
+"""Database models.
 
-Fuente única del esquema: la migración se genera a partir de aquí con
-`alembic revision --autogenerate` y se retoca a mano (extensión, RLS y roles).
+Single source of the schema: the migration is generated from here with
+`alembic revision --autogenerate` and then edited by hand (extension, RLS and roles).
 
-Aislamiento por inquilino (sección 10.1):
-- Toda tabla con datos de un inquilino lleva `tenant_id`, también las hijas
-  (`chunks`, `messages`), para filtrar sin JOIN y para que RLS sea trivial.
-- Las hijas apuntan al padre con una FK compuesta `(padre_id, tenant_id)`: la base
-  impide que un chunk o un mensaje quede con un inquilino distinto al de su padre.
+Tenant isolation:
+- Every table holding tenant data has `tenant_id`, child tables included
+  (`chunks`, `messages`), so queries filter without a JOIN and RLS stays trivial.
+- Child tables reference their parent with a composite FK `(parent_id, tenant_id)`: the
+  database prevents a chunk or a message from having a different tenant than its parent.
 """
 
 import uuid
@@ -34,7 +34,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.core.config import SCHEMA_EMBEDDING_DIM
 from app.db.base import Base
 
-# Diccionario de texto completo: los contratos están en inglés (D-015).
+# Full-text search dictionary: the contracts are in English.
 FTS_CONFIG = "english"
 
 
@@ -46,14 +46,14 @@ class DocumentStatus(StrEnum):
 
 
 class FailureCode(StrEnum):
-    """Closed set of reasons a document ends in `failed` (D-032). The UI and the tests
+    """Closed set of reasons a document ends in `failed`. The UI and the tests
     branch on the code; `failure_detail` carries the human-readable explanation."""
 
     CORRUPT_PDF = "corrupt_pdf"  # cannot be opened or parsed
     EMPTY_PDF = "empty_pdf"  # no extractable text (e.g. a scan; OCR is out of scope)
-    EMBEDDING_UNAVAILABLE = "embedding_unavailable"  # provider failed after retries (D-029)
+    EMBEDDING_UNAVAILABLE = "embedding_unavailable"  # provider failed after retries
     TIMEOUT = "timeout"  # the task exceeded its time limit
-    WORKER_LOST = "worker_lost"  # too many deliveries without finishing (D-024)
+    WORKER_LOST = "worker_lost"  # too many deliveries without finishing
     INTERNAL_ERROR = "internal_error"  # anything unexpected; never left in `processing`
 
 
@@ -83,20 +83,20 @@ def _created_at() -> Mapped[datetime]:
 
 
 def _updated_at() -> Mapped[datetime]:
-    # `onupdate` solo actúa en UPDATE hechos con el ORM; un UPDATE en SQL crudo
-    # (p. ej. la transición atómica del worker) debe poner `updated_at = now()`.
+    # `onupdate` only applies to UPDATEs issued through the ORM; a raw SQL UPDATE
+    # (e.g. the worker's atomic transition) must set `updated_at = now()` itself.
     return mapped_column(TIMESTAMP(timezone=True), server_default=func.now(), onupdate=func.now())
 
 
 class Tenant(Base):
-    """Inquilino. Sin RLS: la autenticación busca por `api_key_hash` antes de saber
-    quién es el inquilino. El rol de la app solo puede leerla."""
+    """Tenant. No RLS: authentication looks up `api_key_hash` before knowing who the
+    tenant is. The app role can only read it."""
 
     __tablename__ = "tenants"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(Text, unique=True)
-    # sha256 en hex de la API key; la key en claro nunca se guarda.
+    # Hex sha256 of the API key; the plaintext key is never stored.
     api_key_hash: Mapped[str] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = _created_at()
 
@@ -114,7 +114,7 @@ class Document(Base):
             unique=True,
             postgresql_where=text("status <> 'failed'"),
         ),
-        # Destino de las FK compuestas de `chunks`.
+        # Target of the composite FKs from `chunks`.
         UniqueConstraint("id", "tenant_id"),
         CheckConstraint(_in("status", DocumentStatus), name="status"),
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="sha256_hex"),
@@ -124,13 +124,13 @@ class Document(Base):
         # A failed document always says why, and only failed documents carry a code.
         CheckConstraint("(status = 'failed') = (failure_code IS NOT NULL)", name="failure_status"),
         CheckConstraint("attempts >= 0", name="attempts_non_negative"),
-        # El lease solo existe mientras se procesa (D-024): al salir de `processing`
-        # hay que limpiarlo, y no se puede entrar en `processing` sin fijarlo.
+        # The lease only exists while processing: leaving `processing` must clear it,
+        # and entering `processing` requires setting it.
         CheckConstraint(
             "(status = 'processing') = (processing_started_at IS NOT NULL)",
             name="processing_lease",
         ),
-        # Listado del inquilino, del más reciente al más antiguo.
+        # Tenant listing, newest first.
         Index(None, "tenant_id", "created_at"),
     )
 
@@ -145,16 +145,16 @@ class Document(Base):
     failure_detail: Mapped[str | None] = mapped_column(Text)
     page_count: Mapped[int | None]
     chunk_count: Mapped[int | None]
-    # Versión del embedding con la que se indexó (sección 8.3).
+    # Embedding version the document was indexed with.
     embedding_model: Mapped[str | None] = mapped_column(Text)
-    # Para los span links de la consulta hacia la ingestión (sección 9).
+    # For span links from the query trace to the ingestion trace.
     ingest_trace_id: Mapped[str | None] = mapped_column(Text)
-    # Lease contra documentos colgados (D-024). Si el worker muere a mitad, no corre
-    # ningún `finally`; la reentrega de Celery puede retomar un `processing` cuyo
-    # lease caducó (más antiguo que el time_limit de la tarea).
+    # Lease against stuck documents. If the worker dies midway, no `finally` runs;
+    # a Celery redelivery may take over a `processing` document whose lease expired
+    # (older than the task's time_limit).
     processing_started_at: Mapped[datetime | None] = mapped_column(TIMESTAMP(timezone=True))
-    # Veces que una entrega de la tarea tomó el documento. A partir del máximo se marca
-    # `failed` sin procesar: un PDF que tumba al worker no se reentrega en bucle.
+    # Number of task deliveries that picked up the document. Past the maximum it is marked
+    # `failed` without processing: a PDF that crashes the worker is not redelivered forever.
     attempts: Mapped[int] = mapped_column(default=0, server_default="0")
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
@@ -172,7 +172,7 @@ class Chunk(Base):
             ["documents.id", "documents.tenant_id"],
             ondelete="CASCADE",
         ),
-        # Base de la escritura idempotente del worker (sección 7.10).
+        # Basis for the worker's idempotent writes.
         UniqueConstraint("document_id", "chunk_index"),
         CheckConstraint("page >= 1", name="page_positive"),
         Index(None, "tenant_id"),
@@ -195,26 +195,26 @@ class Chunk(Base):
     tsv: Mapped[str] = mapped_column(
         TSVECTOR, Computed(f"to_tsvector('{FTS_CONFIG}', content)", persisted=True)
     )
-    # El detector de inyección lo marca al indexar (sección 10.2).
+    # Set by the injection detector at indexing time.
     flagged_injection: Mapped[bool] = mapped_column(default=False, server_default="false")
 
     document: Mapped[Document] = relationship(back_populates="chunks")
 
 
 class Conversation(Base):
-    """Hilo de preguntas por inquilino (D-019). No guarda contexto propio: el contexto
-    se lee de sus mensajes."""
+    """A tenant's question thread. It stores no context of its own: the context is
+    read from its messages."""
 
     __tablename__ = "conversations"
     __table_args__ = (
         UniqueConstraint("id", "tenant_id"),
-        # Listado por actividad más reciente.
+        # Listing by most recent activity.
         Index(None, "tenant_id", "updated_at"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("tenants.id"))
-    # La primera pregunta, para el listado.
+    # The first question, shown in the listing.
     title: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
@@ -228,11 +228,11 @@ class Conversation(Base):
 
 
 class Message(Base):
-    """Un mensaje tal como se muestra. La pregunta y su respuesta se escriben juntas
-    en una transacción: si la consulta falla (503/504), no se guarda ninguna.
+    """A message as displayed. The question and its answer are written together in
+    one transaction: if the query fails (503/504), neither is stored.
 
-    Los metadatos de la consulta van en el mensaje del asistente, sin tabla de log
-    aparte (D-021); el rastro detallado está en la traza (`trace_id`)."""
+    Query metadata lives on the assistant message, with no separate log table; the
+    detailed record is in the trace (`trace_id`)."""
 
     __tablename__ = "messages"
     __table_args__ = (
@@ -241,15 +241,15 @@ class Message(Base):
             ["conversations.id", "conversations.tenant_id"],
             ondelete="CASCADE",
         ),
-        # Orden dentro de la conversación. Un timestamp no basta: la pregunta y la
-        # respuesta se escriben en el mismo instante.
+        # Order within the conversation. A timestamp is not enough: the question and
+        # the answer are written at the same instant.
         UniqueConstraint("conversation_id", "sequence"),
         CheckConstraint(_in("role", MessageRole), name="role"),
         CheckConstraint(f"status IS NULL OR {_in('status', AnswerStatus)}", name="status"),
         CheckConstraint(
             f"confidence IS NULL OR {_in('confidence', Confidence)}", name="confidence"
         ),
-        # Solo las respuestas tienen estado.
+        # Only answers have a status.
         CheckConstraint("(role = 'assistant') = (status IS NOT NULL)", name="status_role"),
         Index(None, "tenant_id"),
     )
@@ -261,14 +261,14 @@ class Message(Base):
     role: Mapped[str] = mapped_column(Text)
     content: Mapped[str] = mapped_column(Text)
 
-    # --- solo en mensajes del asistente ---
-    # La pregunta reescrita como independiente con la que se buscó; null si se usó
-    # la original (primer turno).
+    # --- assistant messages only ---
+    # The question rewritten as standalone and used for retrieval; null if the
+    # original was used (first turn).
     standalone_question: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(Text)
     confidence: Mapped[str | None] = mapped_column(Text)
-    # Copia de cada cita ({chunk_id, document_id, page, quote}): sigue legible
-    # aunque el documento se reindexe y sus chunks se reemplacen.
+    # Copy of each citation ({chunk_id, document_id, page, quote}): stays readable
+    # even if the document is reindexed and its chunks replaced.
     citations: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, default=list, server_default="[]"
     )

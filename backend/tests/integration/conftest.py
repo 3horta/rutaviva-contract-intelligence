@@ -1,5 +1,5 @@
-"""Tests contra el Postgres real de Compose, con las migraciones ya aplicadas
-(`alembic upgrade head`). Si la base no responde, se saltan."""
+"""Tests against the real Compose Postgres, with the migrations already applied
+(`alembic upgrade head`). Skipped if the database does not respond."""
 
 import uuid
 from collections.abc import Iterator
@@ -25,25 +25,25 @@ def _connect_or_skip(url: str) -> Engine:
         with engine.connect():
             pass
     except OperationalError:
-        pytest.skip("Postgres no disponible: docker compose up -d db && alembic upgrade head")
+        pytest.skip("Postgres unavailable: docker compose up -d db && alembic upgrade head")
     return engine
 
 
 @pytest.fixture(scope="session")
 def owner_engine(db_settings: Settings) -> Iterator[Engine]:
-    """Rol dueño (superusuario): se salta RLS. Solo para preparar y limpiar datos."""
+    """Owner role (superuser): bypasses RLS. Only for setting up and cleaning data."""
     engine = _connect_or_skip(db_settings.migrations_database_url)
     with engine.connect() as conn:
-        # Sin migrar, el rol de la app ni siquiera existe: mejor saltar con el motivo.
+        # Without migrations the app role does not even exist: skip with the reason.
         if conn.scalar(text("SELECT to_regclass('alembic_version')")) is None:
-            pytest.skip("Base sin migrar: alembic upgrade head")
+            pytest.skip("Database not migrated: alembic upgrade head")
     yield engine
     engine.dispose()
 
 
 @pytest.fixture(scope="session")
 def app_sessions(db_settings: Settings, owner_engine: Engine) -> Iterator[sessionmaker[Session]]:
-    """Sesiones con el rol de la app, el mismo que usarán la API y el worker."""
+    """Sessions with the app role, the same one the API and the worker use."""
     engine = _connect_or_skip(db_settings.database_url)
     yield make_session_factory(engine)
     engine.dispose()
@@ -51,7 +51,7 @@ def app_sessions(db_settings: Settings, owner_engine: Engine) -> Iterator[sessio
 
 @pytest.fixture
 def two_tenants(owner_engine: Engine) -> Iterator[tuple[uuid.UUID, uuid.UUID]]:
-    """Dos inquilinos nuevos; al terminar se borran con todo lo suyo."""
+    """Two new tenants; deleted with all their data afterwards."""
     ids = (uuid.uuid4(), uuid.uuid4())
     with Session(owner_engine) as session, session.begin():
         for tenant_id in ids:

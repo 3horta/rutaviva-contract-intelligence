@@ -1,49 +1,48 @@
-# Decisiones
+# Decisions
 
-## 2026-11-03 · Spikes de proveedores (Día 0, T0.2–T0.4)
+## 2026-11-03 · Provider spikes
 
-Script: `backend/scripts/spike_providers.py` (grupo uv `spike`). Versiones: litellm 1.106.6,
-google-genai 2.34.0. Ejecución desde `backend/`:
-`uv run --group spike python scripts/spike_providers.py <comando>`.
+Script: `backend/scripts/spike_providers.py` (uv group `spike`). Versions: litellm 1.106.6,
+google-genai 2.34.0. Run from `backend/`:
+`uv run --group spike python scripts/spike_providers.py <command>`.
 
-### Entorno
+### Environment
 
-- `cryptography` 50.x no publica wheel para macOS 12 x86_64 e intenta compilar con Rust (falla).
-  Se fija `cryptography<49` en el grupo `spike` (48.0.1 tiene wheel). En Docker (Linux) no aplica.
+- `cryptography` 50.x ships no wheel for macOS 12 x86_64 and tries to build with Rust (fails).
+  `cryptography<49` is pinned in the `spike` group (48.0.1 has a wheel). Not relevant in Docker (Linux).
 
-### T0.2 · LLM Gemini con salida JSON por esquema (LiteLLM)
+### Gemini LLM with schema-constrained JSON output (LiteLLM)
 
-- Modelos Flash listados en AI Studio: `gemini-3.8-flash` (el más reciente), `gemini-3.5-flash`,
-  `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, además de previews.
-- `gemini-2.5-flash`: **404, ya no disponible para usuarios nuevos**.
-- `gemini-3.8-flash`: **503 UNAVAILABLE ("high demand")** en 3 de 3 intentos (más un timeout de conexión).
-- `gemini-3.5-flash`: OK con `response_format=<modelo Pydantic>`. JSON válido según el esquema,
-  la cita literal aparece en el contexto. Latencia ≈ 4,4 s; 97 tokens de entrada / 296 de salida.
-  En un intento posterior: 503.
-- `gemini-3.5-flash-lite`: OK, JSON válido, cita correcta. Latencia ≈ 19,6 s (en un momento de
-  carga); 97 / 92 tokens.
-- **Decisión:** `LLM_MODEL=gemini/gemini-3.5-flash` como predeterminado para el modo real;
-  `gemini-3.5-flash-lite` como alternativa. Ids solo por variable de entorno.
-- **Implicación:** los 503 de Gemini son frecuentes. Tratar 503 (como 429) como **transitorio**
-  con backoff, y tener Groq como segundo LLM configurable.
+- Flash models listed in AI Studio: `gemini-3.8-flash` (the newest), `gemini-3.5-flash`,
+  `gemini-3.5-flash-lite`, `gemini-3.1-flash-lite`, plus previews.
+- `gemini-2.5-flash`: **404, no longer available to new users**.
+- `gemini-3.8-flash`: **503 UNAVAILABLE ("high demand")** in 3 of 3 attempts (plus a connection timeout).
+- `gemini-3.5-flash`: OK with `response_format=<Pydantic model>`. Valid JSON per the schema,
+  the verbatim quote appears in the context. Latency ≈ 4.4 s; 97 input / 296 output tokens.
+  A later attempt: 503.
+- `gemini-3.5-flash-lite`: OK, valid JSON, correct quote. Latency ≈ 19.6 s (at a time of
+  high load); 97 / 92 tokens.
+- **Decision:** `LLM_MODEL=gemini/gemini-3.5-flash` as the default for real mode;
+  `gemini-3.5-flash-lite` as the alternative. Model ids only via environment variable.
+- **Implication:** Gemini 503s are frequent. Treat 503 (like 429) as **transient** with backoff.
 
-### T0.3 · Embeddings Gemini
+### Gemini embeddings
 
-- `gemini-embedding-001` con `output_dimensionality=768`:
-  - Lote de 3 textos → 3 vectores de 768 (≈ 0,8–1,6 s por lote).
-  - Norma antes de normalizar ≈ 0,59 (**no viene normalizado**); tras L2 = 1,0000.
-  - `RETRIEVAL_DOCUMENT` vs. `RETRIEVAL_QUERY` del mismo texto: coseno 0,90, así que el tipo de tarea
-    sí cambia el vector.
-- LiteLLM (`gemini/gemini-embedding-001`, `dimensions=768`, `task_type=...`): respeta la dimensión
-  y el tipo de tarea; coseno con el vector del SDK = 1,0000 (idéntico).
-- `gemini-embedding-2` (probado por comparación): con el SDK, un lote de 3 textos devuelve **1 solo
-  vector** (parece agregar los `contents`) y el tipo de tarea no cambia el vector (coseno 1,0).
-  Con LiteLLM devuelve 3 vectores pero distintos de los del SDK (coseno 0,76). Comportamiento poco
-  claro: descartado para el MVP.
-- **Decisión:** `EMBEDDING_DIM=768` confirmado, modelo `gemini-embedding-001`, versión guardada como
-  `gemini-embedding-001@768`. Normalizar con L2 siempre antes de guardar. LiteLLM sirve para
-  embeddings (no hace falta el SDK `google-genai` en la app); se usa una sola librería.
+- `gemini-embedding-001` with `output_dimensionality=768`:
+  - Batch of 3 texts → 3 vectors of 768 (≈ 0.8–1.6 s per batch).
+  - Norm before normalizing ≈ 0.59 (**not normalized**); after L2 = 1.0000.
+  - `RETRIEVAL_DOCUMENT` vs. `RETRIEVAL_QUERY` for the same text: cosine 0.90, so the task type
+    does change the vector.
+- LiteLLM (`gemini/gemini-embedding-001`, `dimensions=768`, `task_type=...`): honors the dimension
+  and the task type; cosine against the SDK vector = 1.0000 (identical).
+- `gemini-embedding-2` (tried for comparison): with the SDK, a batch of 3 texts returns **a single
+  vector** (it seems to aggregate the `contents`) and the task type does not change the vector
+  (cosine 1.0). With LiteLLM it returns 3 vectors, but different from the SDK's (cosine 0.76).
+  Unclear behavior: discarded for the MVP.
+- **Decision:** `EMBEDDING_DIM=768` confirmed, model `gemini-embedding-001`, version stored as
+  `gemini-embedding-001@768`. Always L2-normalize before storing. LiteLLM works for
+  embeddings (the `google-genai` SDK is not needed in the app); a single library is used.
 
-### T0.4 · Groq
+### Groq
 
-- Pendiente: falta crear `GROQ_API_KEY`.
+- Dropped from scope: Gemini is the only optional real provider.

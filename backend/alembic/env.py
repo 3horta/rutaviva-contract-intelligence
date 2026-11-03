@@ -1,7 +1,7 @@
-"""Alembic: aplica las migraciones con el rol dueño de las tablas.
+"""Alembic: applies the migrations with the role that owns the tables.
 
-La URL sale de `Settings.migrations_database_url`, no de alembic.ini: una sola fuente
-de configuración, y sin credenciales en archivos versionados.
+The URL comes from `Settings.migrations_database_url`, not from alembic.ini: a single
+source of configuration, and no credentials in committed files.
 """
 
 from logging.config import fileConfig
@@ -10,7 +10,7 @@ from alembic import context
 from sqlalchemy import create_engine, pool
 
 from app.core.config import get_settings
-from app.db import models  # noqa: F401  (registra las tablas en Base.metadata)
+from app.db import models  # noqa: F401  (registers the tables in Base.metadata)
 from app.db.base import Base
 
 config = context.config
@@ -31,5 +31,5 @@ def run_migrations_online() -> None:
 
 
 if context.is_offline_mode():
-    raise SystemExit("Solo se admite el modo online: alembic upgrade head")
+    raise SystemExit("Only online mode is supported: alembic upgrade head")
 run_migrations_online()

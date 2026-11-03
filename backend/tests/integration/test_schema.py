@@ -1,5 +1,5 @@
-"""El esquema de la migración inicial: aislamiento por inquilino en la propia base
-(RLS y FK compuestas) y texto completo en inglés (D-015)."""
+"""The initial migration's schema: tenant isolation in the database itself
+(RLS and composite FKs) and English full-text search."""
 
 import hashlib
 import uuid
@@ -44,7 +44,7 @@ def test_tenant_sees_only_its_own_documents(app_sessions: sessionmaker[Session],
 
     with tenant_transaction(app_sessions, tenant_a) as session:
         assert _count_documents(session) == 1
-    # Sin ningún WHERE tenant_id: es la política RLS la que filtra.
+    # No WHERE tenant_id at all: the RLS policy does the filtering.
     with tenant_transaction(app_sessions, tenant_b) as session:
         assert _count_documents(session) == 0
 
@@ -54,7 +54,7 @@ def test_without_tenant_nothing_is_visible(app_sessions: sessionmaker[Session], 
     with tenant_transaction(app_sessions, tenant_a) as session:
         session.add(_document(tenant_a))
 
-    # Una sesión que olvida fijar el inquilino no ve nada: el fallo es cerrado.
+    # A session that forgets to set the tenant sees nothing: it fails closed.
     with app_sessions() as session:
         assert _count_documents(session) == 0
 
@@ -68,7 +68,7 @@ def test_cannot_write_rows_of_another_tenant(app_sessions: sessionmaker[Session]
 
 def test_chunk_cannot_belong_to_another_tenant_than_its_document(owner_engine: Engine, two_tenants):
     tenant_a, tenant_b = two_tenants
-    # Con el dueño, que se salta RLS: lo que se prueba es la FK compuesta.
+    # As the owner, which bypasses RLS: what is tested is the composite FK.
     with Session(owner_engine, expire_on_commit=False) as session, session.begin():
         document = _document(tenant_a)
         session.add(document)
@@ -88,8 +88,8 @@ def test_full_text_search_uses_english_stemming(app_sessions: sessionmaker[Sessi
         )
 
     with tenant_transaction(app_sessions, tenant_a) as session:
-        # "penalty" y "delivery" solo coinciden con "penalties" y "deliveries" si el
-        # stemming es el inglés.
+        # "penalty" and "delivery" only match "penalties" and "deliveries" with
+        # English stemming.
         hits = session.scalar(
             select(func.count())
             .select_from(Chunk)
@@ -133,13 +133,13 @@ def test_same_pdf_in_two_tenants_is_allowed(app_sessions: sessionmaker[Session],
 @pytest.mark.parametrize(
     ("status", "started"),
     [("processing", False), ("ready", True), ("pending", True)],
-    ids=["processing-sin-lease", "ready-con-lease", "pending-con-lease"],
+    ids=["processing-without-lease", "ready-with-lease", "pending-with-lease"],
 )
 def test_lease_only_exists_while_processing(
     app_sessions: sessionmaker[Session], two_tenants, status: str, started: bool
 ):
-    # D-024: entrar en `processing` exige fijar el lease y salir de él, limpiarlo. Así
-    # un documento en `processing` siempre tiene una fecha con la que decidir si caducó.
+    # Entering `processing` requires setting the lease, and leaving it requires clearing
+    # it. So a `processing` document always has a timestamp to decide if it expired.
     tenant_a, _ = two_tenants
     document = _document(tenant_a)
     document.status = status
@@ -161,7 +161,7 @@ def test_lease_only_exists_while_processing(
 def test_failure_code_is_closed_and_only_on_failed_documents(
     app_sessions: sessionmaker[Session], two_tenants, status: str, code: str | None, constraint: str
 ):
-    # D-032: a failed document always says why, with a code from a closed set.
+    # A failed document always says why, with a code from a closed set.
     tenant_a, _ = two_tenants
     document = _document(tenant_a)
     document.status = status

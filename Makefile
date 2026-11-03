@@ -1,3 +1,3 @@
 .PHONY: help
 help:
-	@echo "Targets pendientes de definir"
+	@echo "Targets not defined yet"

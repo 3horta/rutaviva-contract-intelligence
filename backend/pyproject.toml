@@ -1,7 +1,7 @@
 [project]
 name = "rutaviva-backend"
 version = "0.1.0"
-description = "API y worker de Rutaviva Contract Intelligence"
+description = "API and worker for Rutaviva Contract Intelligence"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.14",
@@ -36,7 +36,7 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "B", "UP", "SIM"]
 
 [tool.ruff.lint.isort]
-# La carpeta de migraciones se llama igual que el paquete: sin esto, ruff lo toma como propio.
+# The migrations folder has the same name as the package: without this, ruff treats it as first-party.
 known-third-party = ["alembic"]
 
 [tool.pytest.ini_options]
@@ -44,7 +44,7 @@ testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
 filterwarnings = [
-    # Starlette recomienda httpx2 para su TestClient; se mantiene httpx por ser el estándar
-    # conocido (decisión D-003). Solo se silencia este aviso concreto.
+    # Starlette recommends httpx2 for its TestClient; httpx is kept as the well-known
+    # standard. Only this specific warning is silenced.
     "ignore:Using `httpx` with `starlette.testclient` is deprecated:starlette.exceptions.StarletteDeprecationWarning",
 ]

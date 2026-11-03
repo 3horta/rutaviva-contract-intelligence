@@ -1,9 +1,9 @@
-# Arranca sin .env: todos los valores tienen un predeterminado que funciona en modo falso.
+# Starts without .env: every value has a default that works in fake mode.
 name: rutaviva
 
 x-backend-env: &backend-env
-  # Rol de la app, sujeto a RLS (D-021). Lo crea la migración inicial con estas
-  # credenciales. El dueño (POSTGRES_USER) solo lo usará el servicio `migrate` (T1.5).
+  # App role, subject to RLS. The initial migration creates it with these
+  # credentials. The owner (POSTGRES_USER) will only be used by the `migrate` service.
   DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-rutaviva_app}:${APP_DB_PASSWORD:-rutaviva_app}@db:5432/${POSTGRES_DB:-rutaviva}
   REDIS_URL: redis://redis:6379/0
   LLM_PROVIDER: ${LLM_PROVIDER:-fake}

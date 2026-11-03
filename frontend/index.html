@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="description" content="Rutaviva Contract Intelligence: ask questions over supplier contracts." />
+    <title>Rutaviva Contract Intelligence</title>
+    <script>
+      // Applies the theme before React renders, so dark mode never flashes
+      // light on load. Same storage key and attribute as src/theme/theme.ts.
+      (function () {
+        try {
+          var saved = localStorage.getItem("rutaviva.theme");
+          var dark = saved
+            ? saved === "dark"
+            : window.matchMedia("(prefers-color-scheme: dark)").matches;
+          document.documentElement.dataset.theme = dark ? "dark" : "light";
+        } catch (e) {}
+      })();
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

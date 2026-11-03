@@ -26,6 +26,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB, TIMESTAMP, TSVECTOR
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -103,9 +104,16 @@ class Tenant(Base):
 class Document(Base):
     __tablename__ = "documents"
     __table_args__ = (
-        # Búsqueda de duplicados por inquilino. Sin UNIQUE (D-022): un PDF que terminó
-        # en `failed` se puede volver a subir como documento nuevo.
-        Index(None, "tenant_id", "sha256"),
+        # The same PDF cannot be live twice in a tenant; a `failed` one does not count,
+        # so it can be uploaded again as a new document. Partial unique index: the
+        # database closes the race between two simultaneous uploads.
+        Index(
+            "uq_documents_tenant_id_sha256_live",
+            "tenant_id",
+            "sha256",
+            unique=True,
+            postgresql_where=text("status <> 'failed'"),
+        ),
         # Destino de las FK compuestas de `chunks`.
         UniqueConstraint("id", "tenant_id"),
         CheckConstraint(_in("status", DocumentStatus), name="status"),

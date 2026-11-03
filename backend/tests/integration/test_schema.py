@@ -98,16 +98,36 @@ def test_full_text_search_uses_english_stemming(app_sessions: sessionmaker[Sessi
     assert hits == 1
 
 
-def test_same_pdf_can_be_uploaded_again(app_sessions: sessionmaker[Session], two_tenants):
-    # Sin UNIQUE (tenant_id, sha256) (D-022): un PDF fallido se vuelve a subir como
-    # documento nuevo. La deduplicación de los vivos la hace la aplicación.
+def test_same_pdf_cannot_be_live_twice(app_sessions: sessionmaker[Session], two_tenants):
+    tenant_a, _ = two_tenants
+    with pytest.raises(IntegrityError, match="uq_documents_tenant_id_sha256_live"):  # noqa: SIM117
+        with tenant_transaction(app_sessions, tenant_a) as session:
+            session.add(_document(tenant_a))
+            session.add(_document(tenant_a))
+
+
+def test_failed_pdf_can_be_uploaded_again(app_sessions: sessionmaker[Session], two_tenants):
     tenant_a, _ = two_tenants
     with tenant_transaction(app_sessions, tenant_a) as session:
-        session.add(_document(tenant_a))
+        failed = _document(tenant_a)
+        failed.status = "failed"
+        failed.failure_code = "corrupt_pdf"
+        session.add(failed)
+    with tenant_transaction(app_sessions, tenant_a) as session:
         session.add(_document(tenant_a))
 
     with tenant_transaction(app_sessions, tenant_a) as session:
         assert _count_documents(session) == 2
+
+
+def test_same_pdf_in_two_tenants_is_allowed(app_sessions: sessionmaker[Session], two_tenants):
+    tenant_a, tenant_b = two_tenants
+    sha = _document(tenant_a).sha256
+    for tenant_id in (tenant_a, tenant_b):
+        with tenant_transaction(app_sessions, tenant_id) as session:
+            document = _document(tenant_id)
+            document.sha256 = sha
+            session.add(document)
 
 
 @pytest.mark.parametrize(

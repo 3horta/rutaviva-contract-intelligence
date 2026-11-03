@@ -179,10 +179,11 @@ def upgrade() -> None:
         unique=False,
     )
     op.create_index(
-        op.f("ix_documents_tenant_id_sha256"),
+        "uq_documents_tenant_id_sha256_live",
         "documents",
         ["tenant_id", "sha256"],
-        unique=False,
+        unique=True,
+        postgresql_where=sa.text("status <> 'failed'"),
     )
     op.create_table(
         "chunks",
@@ -319,7 +320,7 @@ def downgrade() -> None:
         postgresql_ops={"embedding": "vector_cosine_ops"},
     )
     op.drop_table("chunks")
-    op.drop_index(op.f("ix_documents_tenant_id_sha256"), table_name="documents")
+    op.drop_index("uq_documents_tenant_id_sha256_live", table_name="documents")
     op.drop_index(op.f("ix_documents_tenant_id_created_at"), table_name="documents")
     op.drop_table("documents")
     op.drop_index(op.f("ix_conversations_tenant_id_updated_at"), table_name="conversations")

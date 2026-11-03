@@ -123,8 +123,19 @@ services:
       otel-collector:
         condition: service_started
 
-  # frontend:
-  #   (placeholder: the web UI service goes here)
+  # Web UI: nginx serving the React build and proxying /api to the api service (same
+  # origin, so no CORS). The build context is the repo root because the image also
+  # copies infra/nginx.conf; frontend/Dockerfile.dockerignore keeps the context small.
+  web:
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    ports:
+      - "127.0.0.1:${WEB_HOST_PORT:-8080}:80"
+    depends_on:
+      # nginx resolves `api` when it starts.
+      api:
+        condition: service_started
 
   # The collector and Jaeger images are distroless (no shell, no curl), so they have no
   # healthcheck. The apps do not need them to be up: spans are dropped if they are down.

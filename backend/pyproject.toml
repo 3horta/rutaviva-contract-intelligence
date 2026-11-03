@@ -29,11 +29,14 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
 ]
-# Text extraction runs in the worker image only. Docling needs PyTorch, which has no
-# wheels for every desktop platform (e.g. macOS on Intel after 2.2.2), so it is only
-# installed on Linux: in Docker and in CI. Locally, extractor tests are skipped.
-worker = [
+# Local ML: Docling (text extraction) and the embedding model (sentence-transformers),
+# both on PyTorch. They run in the single backend image (api and worker). PyTorch has no
+# wheels for every desktop platform (e.g. macOS on Intel after 2.2.2), so this group is
+# only installed on Linux: in Docker and in CI. Locally the tests use the simulated
+# embedder and skip the Docling and model tests.
+ml = [
     "docling==2.140.0; sys_platform == 'linux'",
+    "sentence-transformers==6.1.0; sys_platform == 'linux'",
     # Declared directly (not only through docling) so that [tool.uv.sources] applies
     # and they come from the CPU-only index.
     "torch; sys_platform == 'linux'",
@@ -47,7 +50,7 @@ spike = [
 
 [tool.uv]
 package = false
-default-groups = ["dev", "worker"]
+default-groups = ["dev", "ml"]
 
 # CPU-only PyTorch on Linux: the default wheels bundle CUDA and add gigabytes.
 [[tool.uv.index]]

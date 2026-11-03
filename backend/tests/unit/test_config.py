@@ -4,15 +4,22 @@ from pydantic import ValidationError
 from app.core.config import Settings
 
 
-def test_defaults_to_fake_mode_without_env(make_settings) -> None:
+def test_defaults_without_env_need_no_keys(make_settings, monkeypatch) -> None:
+    # The autouse fixture forces the simulated embedder for tests; drop it to see the
+    # real defaults.
+    monkeypatch.delenv("EMBEDDINGS_PROVIDER")
     s = make_settings()
 
     assert s.llm_provider == "fake"
-    assert s.embeddings_provider == "fake"
+    assert s.embeddings_provider == "local"
     assert s.embedding_dim == 768
-    assert s.embedding_model_id == "fake-hash-v1@768"
+    assert s.embedding_model_id == "bge-base-en-v1.5@768"
     assert s.fake_llm_mode == "ok"
     assert s.gemini_api_key is None
+
+
+def test_tests_use_the_simulated_embedder(make_settings) -> None:
+    assert make_settings().embedding_model_id == "fake-hash-v1@768"
 
 
 @pytest.mark.parametrize(

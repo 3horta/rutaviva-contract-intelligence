@@ -1,7 +1,9 @@
 """Application settings from environment variables.
 
 Guarantees:
-- With no variables and no `.env`, everything runs in fake mode.
+- With no variables and no `.env`, everything runs without paid keys: a fake LLM and a
+  real embedding model that runs locally (no API, no key). Tests use a simulated
+  embedder instead (`EMBEDDINGS_PROVIDER=fake`).
 - No silent fallback: a real provider without its key prevents startup (fail fast).
 - Keys are `SecretStr`: they never appear in `repr`, logs or `/health`.
 """
@@ -25,7 +27,9 @@ _SECRETS_DIR = Path("/run/secrets")
 SCHEMA_EMBEDDING_DIM = 768
 
 LLMProvider = Literal["fake", "litellm"]
-EmbeddingsProvider = Literal["fake", "gemini"]
+# local: a real open model run in-process (sentence-transformers); fake: the simulated
+# embedder used by the tests; gemini: optional paid API.
+EmbeddingsProvider = Literal["local", "fake", "gemini"]
 FakeLLMMode = Literal["ok", "invalid", "invalid_once", "timeout", "empty"]
 
 FAKE_EMBEDDING_MODEL = "fake-hash-v1"
@@ -57,7 +61,9 @@ class Settings(BaseSettings):
     # Providers (default: fake mode)
     llm_provider: LLMProvider = "fake"
     llm_model: str = ""
-    embeddings_provider: EmbeddingsProvider = "fake"
+    embeddings_provider: EmbeddingsProvider = "local"
+    # 768 dimensions, trained for retrieval, English, MIT licence. Baked into the image.
+    local_embedding_model: str = "BAAI/bge-base-en-v1.5"
     gemini_embedding_model: str = "gemini-embedding-001"
     embedding_dim: int = SCHEMA_EMBEDDING_DIM
     fake_llm_mode: FakeLLMMode = "ok"
@@ -141,12 +147,12 @@ class Settings(BaseSettings):
     @property
     def embedding_model_id(self) -> str:
         """Embedding version stored with each document."""
-        name = (
-            FAKE_EMBEDDING_MODEL
-            if self.embeddings_provider == "fake"
-            else self.gemini_embedding_model
-        )
-        return f"{name}@{self.embedding_dim}"
+        names = {
+            "local": self.local_embedding_model.rsplit("/", 1)[-1],
+            "fake": FAKE_EMBEDDING_MODEL,
+            "gemini": self.gemini_embedding_model,
+        }
+        return f"{names[self.embeddings_provider]}@{self.embedding_dim}"
 
 
 def _has_value(secret: SecretStr | None) -> bool:

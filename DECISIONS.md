@@ -7,7 +7,8 @@ are collected at the end once the related milestones are done.
 
 | # | Decision | Status |
 |---|---|---|
-| [ADR-001](#adr-001--fake-providers-by-default-fail-fast-configuration) | Fake providers by default, fail-fast configuration | Accepted |
+| [ADR-001](#adr-001--no-paid-keys-by-default-fail-fast-configuration) | No paid keys by default, fail-fast configuration | Accepted |
+| [ADR-007](#adr-007--embeddings-a-real-local-model-at-runtime-a-simulated-one-in-tests) | Embeddings: a real local model at runtime, a simulated one in tests | Accepted |
 | [ADR-002](#adr-002--tenant-isolation-column-filter-plus-forced-rls) | Tenant isolation: column filter plus forced RLS | Accepted |
 | [ADR-003](#adr-003--duplicates-the-same-pdf-is-never-live-twice-in-a-tenant) | Duplicates: the same PDF is never live twice in a tenant | Accepted |
 | [ADR-004](#adr-004--no-document-is-left-stuck-in-processing) | No document is left stuck in `processing` | Accepted (schema done; task logic in progress) |
@@ -16,11 +17,11 @@ are collected at the end once the related milestones are done.
 
 ---
 
-## ADR-001 · Fake providers by default, fail-fast configuration
+## ADR-001 · No paid keys by default, fail-fast configuration
 
-- **Context:** the system must run with no paid keys. Real providers are optional.
+- **Context:** the system must run with no paid keys. Paid providers are optional.
 - **Decision:**
-  - `Settings` (pydantic-settings) defaults to `LLM_PROVIDER=fake` and `EMBEDDINGS_PROVIDER=fake`, in code, in `.env.example` and in Compose, where `.env` is optional.
+  - `Settings` (pydantic-settings) defaults to a fake LLM (`LLM_PROVIDER=fake`) and to a real embedding model that runs locally (`EMBEDDINGS_PROVIDER=local`, see ADR-007). Neither needs a key. This holds in code, in `.env.example` and in Compose, where `.env` is optional.
   - A real provider without its key **stops startup** with a clear message. It never falls back to fake mode silently.
   - Keys are `SecretStr`, and validation errors hide input values (`hide_input_in_errors`). Without that, a misconfigured start printed the key in the error.
   - `EMBEDDING_DIM` must match the schema (`vector(768)`).
@@ -91,3 +92,23 @@ are collected at the end once the related milestones are done.
   - It runs pytest with `REQUIRE_DB=1`, which turns those skips into failures.
   - A second job runs gitleaks over the full history.
 - **Verified by:** with `REQUIRE_DB=1` and an unreachable database, the integration tests error instead of skipping.
+
+## ADR-007 · Embeddings: a real local model at runtime, a simulated one in tests
+
+- **Context:** the brief asks for a fake or deterministic embeddings provider so that the system runs without paid keys, and for simulated embeddings in the automated tests. A purely lexical fake (the hashing trick) runs anywhere, but it only matches shared words: "exit the agreement early" never finds "terminate for convenience".
+- **Decision:**
+  - **At runtime:** `BAAI/bge-base-en-v1.5` (768 dimensions, the schema's; trained for retrieval; English; MIT licence) through **sentence-transformers** on PyTorch. It runs in-process with no API and no key, and its weights are baked into the image (no download at runtime).
+  - Same model, library and CPU give the same vector for the same text, so the API (queries) and the worker (chunks), two containers of one image, agree.
+  - Queries carry the instruction BGE recommends; passages carry none.
+  - **In tests:** the simulated embedder (hashing trick over words and character trigrams, `hashlib`, L2-normalised). It is deterministic across processes and lexically meaningful, which is enough to test hybrid SQL, tenant isolation and the pipeline.
+- **Rejected:**
+  - **fastembed (ONNX):** it would keep the API image light, but it adds a second inference runtime next to the PyTorch that Docling already needs.
+  - **A 384-dim model:** it would need a schema migration and gives lower quality.
+  - **Models that need remote code:** not reproducible or auditable.
+- **Consequences:**
+  - One image for API and worker. PyTorch was already there for Docling, so disk and build barely change, but the API uses more memory and starts a few seconds later.
+  - PyTorch has no wheels for macOS on Intel, so the model only runs in Docker and CI.
+- **Verified by:**
+  - `tests/contract/test_fake_embeddings.py`: dimension, unit norm, similarity and determinism across processes with different hash seeds.
+  - `tests/contract/test_local_embeddings.py`, run in CI with `REQUIRE_ML=1`: dimension, norm, same vector twice, and a paraphrase that beats unrelated text.
+  - Retrieval quality with the real model: the verification question set (`make eval`).

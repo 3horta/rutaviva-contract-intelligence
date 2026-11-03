@@ -89,6 +89,10 @@ class Settings(BaseSettings):
     task_max_attempts: int = Field(default=3, ge=1, le=10)
     embedding_batch_size: int = Field(default=32, gt=0, le=256)
 
+    # Docling models are baked into the worker image; this points at them so the worker
+    # never downloads anything at runtime. None = Docling's default cache.
+    docling_artifacts_path: Path | None = None
+
     # Chunking (provisional values; decided with the evaluation set)
     chunk_max_chars: int = Field(default=1000, gt=100)
     chunk_overlap_chars: int = Field(default=150, ge=0)

@@ -88,5 +88,9 @@ class TransientProviderError(ProviderError):
         self.retry_after_s = retry_after_s
 
 
+class ProviderTimeoutError(TransientProviderError):
+    """The provider did not answer within the configured timeout (maps to 504)."""
+
+
 class PermanentProviderError(ProviderError):
     """4xx other than 429, malformed responses, wrong dimension: retrying won't help."""

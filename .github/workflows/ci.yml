@@ -5,9 +5,73 @@ on:
     branches: [main]
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
-  placeholder:
+  backend:
+    name: Backend (lint + tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    services:
+      # Same image as Compose. Published on 5433, the port the default Settings use.
+      db:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: rutaviva
+          POSTGRES_PASSWORD: rutaviva
+          POSTGRES_DB: rutaviva
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U rutaviva -d rutaviva"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.13.7"
+          enable-cache: true
+          cache-dependency-glob: backend/uv.lock
+
+      - name: Install dependencies
+        run: uv sync --frozen
+
+      - name: Lint
+        run: |
+          uv run ruff check .
+          uv run ruff format --check .
+
+      - name: Migrate (upgrade, downgrade, upgrade, drift check)
+        run: |
+          uv run alembic upgrade head
+          uv run alembic downgrade base
+          uv run alembic upgrade head
+          uv run alembic check
+
+      - name: Tests
+        # REQUIRE_DB=1: integration tests fail instead of being skipped when Postgres is
+        # unreachable, so a green run always means the isolation tests actually ran.
+        env:
+          REQUIRE_DB: "1"
+        run: uv run pytest -ra
+
+  secrets:
+    name: Secret scan (gitleaks)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: echo "CI pendiente de configurar"
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -1,6 +1,10 @@
 """Tests against the real Compose Postgres, with the migrations already applied
-(`alembic upgrade head`). Skipped if the database does not respond."""
+(`alembic upgrade head`).
 
+Locally they are skipped if the database does not respond. With REQUIRE_DB=1 (set in
+CI) they fail instead: a green CI run must mean the isolation tests actually ran."""
+
+import os
 import uuid
 from collections.abc import Iterator
 
@@ -19,13 +23,19 @@ def db_settings() -> Settings:
     return Settings(_env_file=None)
 
 
+def _skip_or_fail(reason: str) -> None:
+    if os.getenv("REQUIRE_DB") == "1":
+        pytest.fail(f"REQUIRE_DB=1 but {reason}")
+    pytest.skip(reason)
+
+
 def _connect_or_skip(url: str) -> Engine:
     engine = make_engine(url)
     try:
         with engine.connect():
             pass
     except OperationalError:
-        pytest.skip("Postgres unavailable: docker compose up -d db && alembic upgrade head")
+        _skip_or_fail("Postgres unavailable: docker compose up -d db && alembic upgrade head")
     return engine
 
 
@@ -36,7 +46,7 @@ def owner_engine(db_settings: Settings) -> Iterator[Engine]:
     with engine.connect() as conn:
         # Without migrations the app role does not even exist: skip with the reason.
         if conn.scalar(text("SELECT to_regclass('alembic_version')")) is None:
-            pytest.skip("Database not migrated: alembic upgrade head")
+            _skip_or_fail("Database not migrated: alembic upgrade head")
     yield engine
     engine.dispose()
 

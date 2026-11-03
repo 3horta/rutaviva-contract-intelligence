@@ -2,7 +2,9 @@
 name: rutaviva
 
 x-backend-env: &backend-env
-  DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-rutaviva}:${POSTGRES_PASSWORD:-rutaviva}@db:5432/${POSTGRES_DB:-rutaviva}
+  # Rol de la app, sujeto a RLS (D-021). Lo crea la migración inicial con estas
+  # credenciales. El dueño (POSTGRES_USER) solo lo usará el servicio `migrate` (T1.5).
+  DATABASE_URL: postgresql+psycopg://${APP_DB_USER:-rutaviva_app}:${APP_DB_PASSWORD:-rutaviva_app}@db:5432/${POSTGRES_DB:-rutaviva}
   REDIS_URL: redis://redis:6379/0
   LLM_PROVIDER: ${LLM_PROVIDER:-fake}
   EMBEDDINGS_PROVIDER: ${EMBEDDINGS_PROVIDER:-fake}

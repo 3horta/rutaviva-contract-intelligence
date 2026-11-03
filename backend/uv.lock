@@ -2305,36 +2305,6 @@ wheels = [
 ]
 
 [[package]]
-name = "opentelemetry-instrumentation-logging"
-version = "0.66b2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-semantic-conventions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/23/2f/900c10a10c780f06c0e90e885e5fdcb95f93a91efbd73d3b87d11c6ac72a/opentelemetry_instrumentation_logging-0.66b2.tar.gz", hash = "sha256:a94210291ae10395ad617c2b69bd7c2e10f77818b8beac11368460f47c370eb1", size = 20350, upload-time = "2026-10-29T17:38:34.161Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/6d/52/1f18b14487fa599f96537b2550c7096f824216fedeeb03fdb7f0f67db847/opentelemetry_instrumentation_logging-0.66b2-py3-none-any.whl", hash = "sha256:6141bc09a7868235172748e8a2cd9806549d742b4f5019ce2a571e8c157e5e7d", size = 15926, upload-time = "2026-10-29T17:37:36.938Z" },
-]
-
-[[package]]
-name = "opentelemetry-instrumentation-sqlalchemy"
-version = "0.66b2"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "opentelemetry-api" },
-    { name = "opentelemetry-instrumentation" },
-    { name = "opentelemetry-semantic-conventions" },
-    { name = "packaging" },
-    { name = "wrapt" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/b6/1e/ccf69453217deba3f0ce58d3d2985676c623122b0ae0520def7365c894c6/opentelemetry_instrumentation_sqlalchemy-0.66b2.tar.gz", hash = "sha256:463bb3b0e185b65d8728d62de717e94374276497d7632622a6a873edbc0d7f90", size = 18181, upload-time = "2026-10-29T17:38:44.733Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/bd/8c/345e931ed9ce96099c917461abcbb0f91328feb0091806ee7f7cabf47d07/opentelemetry_instrumentation_sqlalchemy-0.66b2-py3-none-any.whl", hash = "sha256:8c6388bb6d72d74eebe034ad132b6c198a7bad5e0462057807edf543454cb21e", size = 14423, upload-time = "2026-10-29T17:37:52.475Z" },
-]
-
-[[package]]
 name = "opentelemetry-proto"
 version = "1.45.2"
 source = { registry = "https://pypi.org/simple" }
@@ -3421,8 +3391,6 @@ dependencies = [
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "opentelemetry-instrumentation-celery" },
     { name = "opentelemetry-instrumentation-fastapi" },
-    { name = "opentelemetry-instrumentation-logging" },
-    { name = "opentelemetry-instrumentation-sqlalchemy" },
     { name = "opentelemetry-sdk" },
     { name = "pgvector" },
     { name = "psycopg", extra = ["binary"] },
@@ -3460,8 +3428,6 @@ requires-dist = [
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.30" },
     { name = "opentelemetry-instrumentation-celery", specifier = ">=0.51b0" },
     { name = "opentelemetry-instrumentation-fastapi", specifier = ">=0.51b0" },
-    { name = "opentelemetry-instrumentation-logging", specifier = ">=0.51b0" },
-    { name = "opentelemetry-instrumentation-sqlalchemy", specifier = ">=0.51b0" },
     { name = "opentelemetry-sdk", specifier = ">=1.30" },
     { name = "pgvector", specifier = ">=0.3.6" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },

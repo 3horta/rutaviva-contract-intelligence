@@ -1,3 +1,5 @@
+import re
+
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -45,7 +47,9 @@ def test_app_error_becomes_problem_details() -> None:
     assert body["title"] == "Not found"
     assert body["detail"] == "Document not found."
     # No recorded trace in unit tests.
-    assert body["trace_id"] is None
+    # Null without a recording tracer; a 32-hex id once telemetry is configured
+    # (another test in the session may have installed a TracerProvider).
+    assert body["trace_id"] is None or re.fullmatch(r"[0-9a-f]{32}", body["trace_id"])
 
 
 def test_unauthorized_announces_the_bearer_scheme() -> None:

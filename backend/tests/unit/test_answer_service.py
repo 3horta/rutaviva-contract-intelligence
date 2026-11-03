@@ -78,6 +78,14 @@ def retrieved(monkeypatch: pytest.MonkeyPatch) -> list[RetrievedChunk]:
     return chunks
 
 
+@pytest.fixture(autouse=True)
+def sleeps(monkeypatch: pytest.MonkeyPatch) -> list[float]:
+    """Record the waits instead of sleeping."""
+    waits: list[float] = []
+    monkeypatch.setattr(service, "_sleep", waits.append)
+    return waits
+
+
 def _ask(llm: ScriptedLLM, max_retries: int = 2):
     settings = Settings(_env_file=None, llm_max_retries=max_retries)
     return service.answer_question(
@@ -164,10 +172,30 @@ def test_timeout_then_success_is_answered(retrieved) -> None:
     assert response.status == "answered"
 
 
-def test_transient_error_after_retries_is_service_unavailable(retrieved) -> None:
-    llm = ScriptedLLM(TransientProviderError("429"), TransientProviderError("503"))
+def test_transient_error_is_retried_once_after_a_short_wait(retrieved, sleeps) -> None:
+    llm = ScriptedLLM(TransientProviderError("503"), _valid())
+    assert _ask(llm).status == "answered"
+    assert sleeps == [service.TRANSIENT_RETRY_WAIT_S]
+
+
+def test_transient_error_twice_gives_up_even_with_attempts_left(retrieved, sleeps) -> None:
+    # Two attempts remain after the first failure, but a 429/5xx gets only one retry.
+    llm = ScriptedLLM(TransientProviderError("429"), TransientProviderError("503"), _valid())
     with pytest.raises(ServiceUnavailable):
-        _ask(llm, max_retries=1)
+        _ask(llm, max_retries=2)
+    assert len(llm.prompts) == 2
+    assert len(sleeps) == 1
+
+
+def test_retry_after_is_respected_and_capped(retrieved, sleeps) -> None:
+    _ask(ScriptedLLM(TransientProviderError("429", retry_after_s=2.5), _valid()))
+    _ask(ScriptedLLM(TransientProviderError("429", retry_after_s=60), _valid()))
+    assert sleeps == [2.5, service.MAX_RETRY_AFTER_S]
+
+
+def test_timeouts_do_not_wait(retrieved, sleeps) -> None:
+    _ask(ScriptedLLM(ProviderTimeoutError("slow"), _valid()))
+    assert sleeps == []
 
 
 def test_permanent_error_is_not_retried(retrieved) -> None:

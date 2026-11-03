@@ -7,11 +7,14 @@
 In all three the answer is `INSUFFICIENT_EVIDENCE_MESSAGE` with status
 `insufficient_evidence`, confidence `low` and no citations.
 
-Attempts: up to `1 + llm_max_retries`. An attempt is retried when its output fails
-validation (the reason is fed back to the model) or when the provider raises a
-transient error. Provider errors that survive every attempt become HTTP errors:
-`ProviderTimeoutError` -> 504 `GatewayTimeout`; any other provider error -> 503
-`ServiceUnavailable`. A permanent provider error is not retried.
+Attempts: up to `1 + llm_max_retries`, shared by:
+- invalid output: retried, with the validation error fed back to the model;
+- timeouts (`ProviderTimeoutError`): retried while attempts remain;
+- other transient provider errors (429, 5xx): retried at most ONCE, after a short wait
+  (the provider's Retry-After if it sends one, capped), because an overloaded provider
+  rarely recovers within the same request.
+Provider errors that survive become HTTP errors: timeout -> 504 `GatewayTimeout`; any
+other provider error -> 503 `ServiceUnavailable`. A permanent error is not retried.
 
 Confidence = min(confidence given by the LLM, retrieval signal). The retrieval signal is
 `high` only when the top chunk was found by BOTH the vector and the full-text branch
@@ -20,6 +23,7 @@ branch match can never produce a `high` answer.
 """
 
 import logging
+import time
 import uuid
 
 from opentelemetry.trace import Span
@@ -65,6 +69,12 @@ from app.schemas.query import (
 logger = logging.getLogger(__name__)
 
 _CONFIDENCE_ORDER: list[Confidence] = ["low", "medium", "high"]
+
+# Non-timeout transient errors (429, 5xx): one retry after a short wait.
+MAX_TRANSIENT_RETRIES = 1
+TRANSIENT_RETRY_WAIT_S = 1.0
+MAX_RETRY_AFTER_S = 5.0
+_sleep = time.sleep  # replaced in tests
 
 
 def answer_question(
@@ -152,6 +162,7 @@ def _generate_validated(
     ]
     max_attempts = 1 + settings.llm_max_retries
     feedback: str | None = None
+    transient_retries = 0
 
     for attempt in range(1, max_attempts + 1):
         is_last = attempt == max_attempts
@@ -161,11 +172,19 @@ def _generate_validated(
         ) as llm_span:
             try:
                 result = llm.generate(prompt, timeout_s=settings.llm_timeout_s)
-            except TransientProviderError as exc:
-                # Includes ProviderTimeoutError. Retry while attempts remain.
+            except ProviderTimeoutError as exc:
+                # Timeouts: retried while attempts remain.
                 if is_last:
                     raise _to_app_error(exc) from exc  # the span records it as an error
                 llm_span.record_exception(exc)
+                continue
+            except TransientProviderError as exc:
+                # 429 / 5xx: one retry after a short wait, then give up.
+                if is_last or transient_retries >= MAX_TRANSIENT_RETRIES:
+                    raise _to_app_error(exc) from exc
+                transient_retries += 1
+                llm_span.record_exception(exc)
+                _sleep(min(exc.retry_after_s or TRANSIENT_RETRY_WAIT_S, MAX_RETRY_AFTER_S))
                 continue
             except PermanentProviderError as exc:
                 raise _to_app_error(exc) from exc

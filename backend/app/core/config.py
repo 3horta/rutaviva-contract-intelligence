@@ -67,6 +67,45 @@ class Settings(BaseSettings):
     # Keys (only in .env or Docker secrets, never committed)
     gemini_api_key: SecretStr | None = None
 
+    # Authentication: test JWTs (HS256) carrying the tenant. The signing key is never in
+    # the repo: either JWT_SECRET is set, or the `migrate` service generates one into
+    # `jwt_secret_file` (a shared volume) on first start and the API reads it from there.
+    jwt_secret: SecretStr | None = None
+    jwt_secret_file: Path = Path("var/secrets/jwt_secret")
+    jwt_issuer: str = "rutaviva"
+    jwt_ttl_hours: int = Field(default=24, gt=0, le=24 * 30)
+
+    # Uploads and file storage (local disk behind the Storage port)
+    files_dir: Path = Path("var/files")
+    max_upload_mb: int = Field(default=20, gt=0, le=100)
+
+    # Ingestion task (Celery). Soft limit raises inside the task so it can mark the
+    # document `failed`; the hard limit kills the process (the lease covers that case).
+    task_soft_time_limit_s: int = Field(default=240, gt=0)
+    task_time_limit_s: int = Field(default=300, gt=0)
+    task_max_retries: int = Field(default=3, ge=0, le=10)
+    task_retry_backoff_s: int = Field(default=5, ge=1)
+    # Deliveries of the same document before it is marked `failed` (`worker_lost`).
+    task_max_attempts: int = Field(default=3, ge=1, le=10)
+    embedding_batch_size: int = Field(default=32, gt=0, le=256)
+
+    # Chunking (provisional values; decided with the evaluation set)
+    chunk_max_chars: int = Field(default=1000, gt=100)
+    chunk_overlap_chars: int = Field(default=150, ge=0)
+
+    # Hybrid retrieval (provisional values; decided with the evaluation set)
+    retrieval_candidates: int = Field(default=40, gt=0, le=200)  # per branch
+    retrieval_k: int = Field(default=8, gt=0, le=50)
+    rrf_k: int = Field(default=60, gt=0)
+    rrf_weight_vector: float = Field(default=0.6, ge=0)
+    rrf_weight_fts: float = Field(default=0.4, ge=0)
+    max_chunks_per_document: int = Field(default=3, gt=0)
+
+    # Observability. No endpoint means spans are created but not exported.
+    otel_exporter_otlp_endpoint: str | None = None
+    otel_service_name: str = "rutaviva-api"
+    log_level: str = "INFO"
+
     @model_validator(mode="after")
     def _validate_providers(self) -> Self:
         errors: list[str] = []

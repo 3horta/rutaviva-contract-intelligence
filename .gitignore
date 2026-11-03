@@ -25,3 +25,7 @@ frontend/dist/
 .DS_Store
 .idea/
 .vscode/
+
+# Local runtime data: uploaded PDFs and the generated JWT signing key
+var/
+backend/var/

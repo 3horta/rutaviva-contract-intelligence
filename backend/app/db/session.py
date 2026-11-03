@@ -1,9 +1,13 @@
-"""Engine and sessions. The FastAPI dependency is not here yet; only what the API,
-the worker and the tests share."""
+"""Engine and sessions shared by the API, the worker and the tests.
+
+Every read or write of tenant data goes through `tenant_transaction`, which sets the
+tenant for RLS. A session that forgets to set it sees nothing (the policy fails closed).
+"""
 
 import uuid
 from collections.abc import Iterator
 from contextlib import contextmanager
+from functools import lru_cache
 
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
@@ -15,6 +19,12 @@ def make_engine(url: str) -> Engine:
 
 def make_session_factory(engine: Engine) -> sessionmaker[Session]:
     return sessionmaker(bind=engine, expire_on_commit=False)
+
+
+@lru_cache
+def session_factory_for(url: str) -> sessionmaker[Session]:
+    """One engine (and connection pool) per database URL and process."""
+    return make_session_factory(make_engine(url))
 
 
 def set_tenant(session: Session, tenant_id: uuid.UUID) -> None:

@@ -5,10 +5,20 @@ description = "API and worker for Rutaviva Contract Intelligence"
 requires-python = ">=3.12"
 dependencies = [
     "alembic>=1.14",
+    "celery[redis]>=5.4",
     "fastapi>=0.115",
+    "opentelemetry-api>=1.30",
+    "opentelemetry-exporter-otlp-proto-grpc>=1.30",
+    "opentelemetry-instrumentation-celery>=0.51b0",
+    "opentelemetry-instrumentation-fastapi>=0.51b0",
+    "opentelemetry-instrumentation-logging>=0.51b0",
+    "opentelemetry-instrumentation-sqlalchemy>=0.51b0",
+    "opentelemetry-sdk>=1.30",
     "pgvector>=0.3.6",
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.6",
+    "pyjwt>=2.10",
+    "python-multipart>=0.0.20",
     "sqlalchemy>=2.0.36",
     "uvicorn[standard]>=0.32",
 ]
@@ -19,6 +29,16 @@ dev = [
     "pytest>=8.3",
     "ruff>=0.8",
 ]
+# Text extraction runs in the worker image only. Docling needs PyTorch, which has no
+# wheels for every desktop platform (e.g. macOS on Intel after 2.2.2), so it is only
+# installed on Linux: in Docker and in CI. Locally, extractor tests are skipped.
+worker = [
+    "docling==2.140.0; sys_platform == 'linux'",
+    # Declared directly (not only through docling) so that [tool.uv.sources] applies
+    # and they come from the CPU-only index.
+    "torch; sys_platform == 'linux'",
+    "torchvision; sys_platform == 'linux'",
+]
 spike = [
     "cryptography<49",
     "google-genai>=1.30",
@@ -27,6 +47,17 @@ spike = [
 
 [tool.uv]
 package = false
+default-groups = ["dev", "worker"]
+
+# CPU-only PyTorch on Linux: the default wheels bundle CUDA and add gigabytes.
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
+
+[tool.uv.sources]
+torch = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
+torchvision = [{ index = "pytorch-cpu", marker = "sys_platform == 'linux'" }]
 
 [tool.ruff]
 line-length = 100

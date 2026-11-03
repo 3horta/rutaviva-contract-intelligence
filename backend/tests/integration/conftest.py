@@ -65,9 +65,7 @@ def two_tenants(owner_engine: Engine) -> Iterator[tuple[uuid.UUID, uuid.UUID]]:
     ids = (uuid.uuid4(), uuid.uuid4())
     with Session(owner_engine) as session, session.begin():
         for tenant_id in ids:
-            session.add(
-                Tenant(id=tenant_id, name=f"test-{tenant_id}", api_key_hash=tenant_id.hex * 2)
-            )
+            session.add(Tenant(id=tenant_id, name=f"test-{tenant_id}"))
     yield ids
     with owner_engine.begin() as conn:
         for table in ("messages", "conversations", "chunks", "documents"):

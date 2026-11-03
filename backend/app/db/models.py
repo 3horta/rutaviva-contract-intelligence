@@ -89,15 +89,15 @@ def _updated_at() -> Mapped[datetime]:
 
 
 class Tenant(Base):
-    """Tenant. No RLS: authentication looks up `api_key_hash` before knowing who the
-    tenant is. The app role can only read it."""
+    """Tenant. No RLS: authentication checks that the tenant in a verified token exists
+    before any tenant is set. The app role can only read it."""
 
     __tablename__ = "tenants"
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
+    # Stable slug used in tokens and sample data (e.g. "tenant_a").
     name: Mapped[str] = mapped_column(Text, unique=True)
-    # Hex sha256 of the API key; the plaintext key is never stored.
-    api_key_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    display_name: Mapped[str] = mapped_column(Text, default="", server_default="")
     created_at: Mapped[datetime] = _created_at()
 
 
@@ -156,6 +156,13 @@ class Document(Base):
     # Number of task deliveries that picked up the document. Past the maximum it is marked
     # `failed` without processing: a PDF that crashes the worker is not redelivered forever.
     attempts: Mapped[int] = mapped_column(default=0, server_default="0")
+    # Key of the stored PDF in the Storage port (unique per upload).
+    storage_key: Mapped[str | None] = mapped_column(Text)
+    # Per-document metrics of the last successful ingestion (cost and latency).
+    processing_ms: Mapped[int | None]
+    embedding_calls: Mapped[int | None]
+    embedding_tokens: Mapped[int | None]
+    embedding_tokens_estimated: Mapped[bool | None]
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
@@ -175,6 +182,10 @@ class Chunk(Base):
         # Basis for the worker's idempotent writes.
         UniqueConstraint("document_id", "chunk_index"),
         CheckConstraint("page >= 1", name="page_positive"),
+        CheckConstraint(
+            "bbox IS NULL OR (jsonb_typeof(bbox) = 'array' AND jsonb_array_length(bbox) = 4)",
+            name="bbox_four_numbers",
+        ),
         Index(None, "tenant_id"),
         Index(
             "ix_chunks_embedding_hnsw",
@@ -197,6 +208,11 @@ class Chunk(Base):
     )
     # Set by the injection detector at indexing time.
     flagged_injection: Mapped[bool] = mapped_column(default=False, server_default="false")
+    # Where the chunk is on its page, for highlighting: [x0, top, x1, bottom] in PDF
+    # points, origin top-left. Null if the extractor gave no coordinates.
+    bbox: Mapped[list[float] | None] = mapped_column(JSONB)
+    page_width: Mapped[float | None]
+    page_height: Mapped[float | None]
 
     document: Mapped[Document] = relationship(back_populates="chunks")
 

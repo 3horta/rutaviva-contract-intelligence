@@ -96,7 +96,11 @@ def _pdf() -> bytes:
 
 
 def _insert_document(owner_engine: Engine, tenant_id: uuid.UUID, **values) -> uuid.UUID:
+    # The id is chosen here: reading `document.id` after the session closes would need a
+    # refresh of an expired, detached instance (the default expire_on_commit=True).
+    document_id = values.pop("id", uuid.uuid4())
     document = Document(
+        id=document_id,
         tenant_id=tenant_id,
         filename=values.pop("filename", "contract.pdf"),
         sha256=values.pop("sha256", hashlib.sha256(os.urandom(16)).hexdigest()),
@@ -104,7 +108,7 @@ def _insert_document(owner_engine: Engine, tenant_id: uuid.UUID, **values) -> uu
     )
     with Session(owner_engine) as session, session.begin():
         session.add(document)
-    return document.id
+    return document_id
 
 
 def _assert_problem(response, status: int) -> dict:

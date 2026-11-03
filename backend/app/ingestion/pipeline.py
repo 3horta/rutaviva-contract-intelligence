@@ -25,7 +25,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from celery.exceptions import SoftTimeLimitExceeded
-from sqlalchemy import delete, func, insert, text, update
+from sqlalchemy import delete, func, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core import tracing
@@ -355,23 +355,22 @@ def _store(
 
         # Idempotent: a re-run replaces the chunks instead of adding to them.
         session.execute(delete(Chunk).where(Chunk.document_id == document_id))
-        session.execute(
-            insert(Chunk),
-            [
-                {
-                    "document_id": document_id,
-                    "tenant_id": tenant_id,
-                    "page": draft.page,
-                    "chunk_index": draft.chunk_index,
-                    "content": draft.content,
-                    "embedding": vector,
-                    "bbox": draft.bbox.as_list() if draft.bbox else None,
-                    "page_width": draft.page_width,
-                    "page_height": draft.page_height,
-                }
-                for draft, vector in zip(drafts, embedded.vectors, strict=True)
-            ],
-        )
+        for draft, vector in zip(drafts, embedded.vectors, strict=True):
+            chunk = Chunk(
+                document_id=document_id,
+                tenant_id=tenant_id,
+                page=draft.page,
+                chunk_index=draft.chunk_index,
+                content=draft.content,
+                embedding=vector,
+                page_width=draft.page_width,
+                page_height=draft.page_height,
+            )
+            # Only set when known: assigning None to a JSONB attribute stores the JSON
+            # value `null`, not SQL NULL, and the bbox CHECK rejects it.
+            if draft.bbox is not None:
+                chunk.bbox = draft.bbox.as_list()
+            session.add(chunk)
 
 
 def _fail(

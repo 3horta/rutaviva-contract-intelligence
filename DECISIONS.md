@@ -589,7 +589,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
 
 A `tenant_id` column on every tenant table, filtered in every query, **plus PostgreSQL Row Level Security, forced**, under a non-owner role. The risks and costs of each option are in ADR-002. In short:
 - **The filter alone:** one forgotten `WHERE` leaks data.
-- **RLS:** a second, independent layer. It costs one role, one policy per table and setting the tenant in every transaction (API and worker), and owners bypass it unless it is forced.
+- **RLS:** a second, independent layer. It costs one role, one policy per table and setting the tenant in every transaction (API and worker). Superusers and `BYPASSRLS` roles always bypass it and table owners do unless it is forced, so the app connects as a non-owner, `NOBYPASSRLS` role.
 - **A schema or database per tenant:** the strongest, but it multiplies migrations and connections.
 
 Composite foreign keys `(parent_id, tenant_id)` make a chunk or message of tenant A pointing at a document of tenant B impossible. The tenant comes only from the JWT; there is no tenant parameter anywhere in the API. Tests prove each layer on its own (RLS hides and refuses another tenant's rows; the search filter holds on a connection that bypasses RLS), isolation through the API, and the evaluation's leak check.

@@ -131,10 +131,10 @@ def test_documents_are_counted_when_they_end(reader, monkeypatch) -> None:
     )
     monkeypatch.setattr(pipeline, "_process_document", lambda *a: next(outcomes))
     ticks = iter([0.0, 2.5, 10.0, 11.0, 20.0, 20.5])
-    deps = type("Deps", (), {"clock": staticmethod(lambda: next(ticks))})()
+    monkeypatch.setattr(pipeline, "_now", lambda: next(ticks))
 
     for _ in range(3):
-        pipeline.process_document(uuid.uuid4(), uuid.uuid4(), deps)
+        pipeline.process_document(uuid.uuid4(), uuid.uuid4(), deps=None)
 
     found = points(reader)
     processed = {

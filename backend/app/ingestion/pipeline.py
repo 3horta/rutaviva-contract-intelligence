@@ -105,6 +105,10 @@ _ACQUIRE = text(
 )
 
 
+# Clock of the metrics' duration; `deps.clock` stays for `processing_ms`. Replaced in tests.
+_now = time.perf_counter
+
+
 def process_document(
     document_id: uuid.UUID, tenant_id: uuid.UUID, deps: IngestionDeps
 ) -> ProcessOutcome:
@@ -113,12 +117,12 @@ def process_document(
 
     A document that ends `ready` or `failed` is counted in `rutaviva.documents.processed`
     with its duration (ADR-020). A skipped delivery or a retry is not an end."""
-    started = deps.clock()
+    started = _now()
     outcome = _process_document(document_id, tenant_id, deps)
     if outcome.status != "skipped":
         metrics.record_document_processed(
             outcome.status,
-            deps.clock() - started,
+            _now() - started,
             outcome.failure_code.value if outcome.failure_code else None,
         )
     return outcome

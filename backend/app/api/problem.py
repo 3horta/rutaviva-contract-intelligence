@@ -26,6 +26,19 @@ logger = logging.getLogger(__name__)
 PROBLEM_CONTENT_TYPE = "application/problem+json"
 
 
+def problem_body(
+    status: int, title: str, detail: str, type_: str = "about:blank"
+) -> dict[str, Any]:
+    """The Problem Details object itself; also sent as the `error` event of a stream."""
+    return {
+        "type": type_,
+        "title": title,
+        "status": status,
+        "detail": detail,
+        "trace_id": tracing.current_trace_id(),
+    }
+
+
 def problem_response(
     status: int,
     title: str,
@@ -35,13 +48,7 @@ def problem_response(
     extra: dict[str, Any] | None = None,
     headers: dict[str, str] | None = None,
 ) -> JSONResponse:
-    body: dict[str, Any] = {
-        "type": type_,
-        "title": title,
-        "status": status,
-        "detail": detail,
-        "trace_id": tracing.current_trace_id(),
-    }
+    body = problem_body(status, title, detail, type_)
     if extra:
         body.update(extra)
     return JSONResponse(body, status_code=status, media_type=PROBLEM_CONTENT_TYPE, headers=headers)

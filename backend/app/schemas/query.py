@@ -40,6 +40,10 @@ class QueryRequest(BaseModel):
         str, StringConstraints(strip_whitespace=True, min_length=1, max_length=2000)
     ]
     conversation_id: uuid.UUID | None = None
+    # Ask the last question of the conversation again and REPLACE its last turn (the
+    # previous answer is deleted when the new one is saved). Requires `conversation_id`
+    # and the same question text as the last turn; otherwise 422.
+    retry: bool = False
 
 
 class Citation(BaseModel):
@@ -53,6 +57,41 @@ class Citation(BaseModel):
     quote: str
 
 
+FoundBy = Literal["vector", "full_text", "both"]
+InsufficientReason = Literal["no_results", "llm_declared", "validation_failed"]
+
+
+class RetrievedChunkOut(BaseModel):
+    """A chunk the answer was generated from. Ids, page and score only: never content."""
+
+    document_id: uuid.UUID
+    document_filename: str
+    page: int
+    chunk_id: uuid.UUID
+    score: float  # fused RRF score (only comparable within the same answer)
+    found_by: FoundBy
+
+
+class AnswerDetails(BaseModel):
+    """How an answer was produced, for the "how was this answered" panel."""
+
+    retrieved: list[RetrievedChunkOut]
+    # Of the retrieved chunks, how many each search branch found (a chunk found by both
+    # counts in both).
+    vector_hits: int
+    full_text_hits: int
+    # LLM calls made (0 when retrieval found nothing and the LLM was not called).
+    attempts: int
+    insufficient_reason: InsufficientReason | None
+    latency_ms: int
+    llm_model: str
+    trace_id: str | None
+    # The question actually searched when a follow-up was rewritten with the conversation
+    # context; null when the question was used as typed.
+    standalone_question: str | None = None
+    uses_context: bool = False
+
+
 class QueryResponse(BaseModel):
     conversation_id: uuid.UUID | None
     answer: str
@@ -60,3 +99,6 @@ class QueryResponse(BaseModel):
     confidence: Confidence
     citations: list[Citation]
     warnings: list[str]
+    # The stored assistant message; null only when the answer was not persisted.
+    message_id: uuid.UUID | None = None
+    details: AnswerDetails | None = None

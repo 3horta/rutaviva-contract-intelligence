@@ -37,6 +37,12 @@ RETRIEVAL_RESULTS = "retrieval.results"
 JUDGE_CANDIDATES = "retrieval.judge.candidates"
 JUDGE_KEPT = "retrieval.judge.kept"
 JUDGE_FAILED = "retrieval.judge.failed"
+# Cross-encoder reranking of the fused candidates: model, how many it scored, how long it
+# took, and whether it failed (failure keeps the RRF order).
+RERANK_MODEL = "retrieval.rerank.model"
+RERANK_CANDIDATES = "retrieval.rerank.candidates"
+RERANK_LATENCY_MS = "retrieval.rerank.latency_ms"
+RERANK_FAILED = "retrieval.rerank.failed"
 
 # GenAI semantic conventions where they exist; `llm.*` for what they do not cover.
 GEN_AI_REQUEST_MODEL = "gen_ai.request.model"

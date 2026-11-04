@@ -12,6 +12,7 @@ from app.db.models import Chunk, Document, DocumentStatus
 from app.db.session import tenant_transaction
 from app.providers.embeddings.fake import FakeEmbeddings
 from app.retrieval.hybrid import RetrievedChunk, search
+from app.retrieval.rerank import CrossEncoderReranker, Reranker
 
 EMBEDDINGS = FakeEmbeddings(768)
 
@@ -87,7 +88,9 @@ def indexed(app_sessions: sessionmaker[Session], two_tenants):
     }
 
 
-def _search(session: Session, tenant_id: uuid.UUID, question: str) -> list[RetrievedChunk]:
+def _search(
+    session: Session, tenant_id: uuid.UUID, question: str, reranker: Reranker | None = None
+) -> list[RetrievedChunk]:
     return search(
         session,
         tenant_id=tenant_id,
@@ -95,6 +98,7 @@ def _search(session: Session, tenant_id: uuid.UUID, question: str) -> list[Retri
         question=question,
         embedding_model=EMBEDDINGS.model_id,
         settings=Settings(_env_file=None),
+        reranker=reranker,
     )
 
 
@@ -164,3 +168,31 @@ def test_tenant_without_documents_gets_nothing(app_sessions, indexed) -> None:
     empty_tenant = uuid.uuid4()  # never inserted: there cannot be rows for it
     with tenant_transaction(app_sessions, indexed["tenant_a"]) as session:
         assert _search(session, empty_tenant, "Incident Reporting Protocol RV-IRP-7") == []
+
+
+class FuelFirstScorer:
+    """A stand-in cross-encoder that prefers the fuel clause, whatever the question, and
+    records every passage it was shown."""
+
+    def __init__(self) -> None:
+        self.seen: list[str] = []
+
+    def predict(self, pairs: list[tuple[str, str]], **kwargs: object) -> list[float]:
+        self.seen.extend(passage for _, passage in pairs)
+        return [10.0 if passage == FUEL else 0.0 for _, passage in pairs]
+
+
+def test_reranker_reorders_only_the_tenants_own_candidates(app_sessions, indexed) -> None:
+    question = "What does Incident Reporting Protocol RV-IRP-7 require?"
+    scorer = FuelFirstScorer()
+    reranker = CrossEncoderReranker(scorer, "stub")
+    with tenant_transaction(app_sessions, indexed["tenant_a"]) as session:
+        plain = _search(session, indexed["tenant_a"], question)
+        reranked = _search(session, indexed["tenant_a"], question, reranker)
+
+    # Without reranking the shared paragraph wins; the reranker moves fuel to the top.
+    assert plain[0].content == SHARED and plain[0].rerank_score is None
+    assert reranked[0].document_id == indexed["fuel"] and reranked[0].rerank_score == 10.0
+    assert {c.chunk_id for c in reranked} == {c.chunk_id for c in plain}  # reorder only
+    # It only ever saw tenant A's chunks: DETENTION exists only in tenant B.
+    assert scorer.seen and DETENTION not in scorer.seen

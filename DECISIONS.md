@@ -530,5 +530,6 @@ The whole project was built with an AI coding assistant (Claude Code), working u
 - **It committed with failing tests:** `pytest | tail -1` hid the exit code. It was found in the output and fixed; exit codes are checked explicitly since.
 - **With two sessions sharing one checkout, a `git add -A` swept the other session's unfinished work into a commit.** The history was rebuilt before pushing; files are now staged by path only.
 - **Its first evaluation checker reported false failures:** it flagged the page number an answer cites as an invented figure. Fixed after reading an actual answer, before touching the system.
+- **A bug no automated test caught:** in Docker, clicking a citation showed "The PDF could not be displayed". nginx served the PDF.js worker (`.mjs`) as `application/octet-stream`, and with `nosniff` the browser refused to run it; the frontend tests never go through nginx, and Vite's dev server serves the file correctly. I found it in a manual run. nginx now maps `.mjs` to JavaScript, and the e2e job checks the worker's content type.
 
 **What I kept for myself:** every design decision listed in the ADRs, the scope cuts, and the final review of what goes into this public repository.

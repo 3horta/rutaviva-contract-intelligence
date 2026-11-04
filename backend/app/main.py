@@ -11,6 +11,8 @@ from fastapi import FastAPI
 from starlette.concurrency import run_in_threadpool
 
 from app.api.conversations import router as conversations_router
+from app.api.demo_auth import demo_login_enabled
+from app.api.demo_auth import router as demo_auth_router
 from app.api.documents import router as documents_router
 from app.api.health import router as health_router
 from app.api.problem import install_problem_handlers
@@ -48,4 +50,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(documents_router)
     app.include_router(query_router)
     app.include_router(conversations_router)
+    # Demo sign-in (ADR-016): on by default; with DEMO_LOGIN=false the routes do not exist.
+    if demo_login_enabled():
+        app.include_router(demo_auth_router)
     return app

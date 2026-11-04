@@ -320,12 +320,17 @@ class Message(Base):
 
 
 class MessageFeedback(Base):
-    """A user's rating of an answer: one per assistant message, replaced when rated again
-    and deleted with the message (a retry or a deleted conversation takes it along).
+    """A rating of an answer: one per assistant message and rater, replaced when that
+    rater rates it again, and deleted with the message (a retry or a deleted
+    conversation takes it along).
+
+    `rater_id` is an anonymous id the browser makes up and sends (`X-Rater-Id`); it
+    tells raters apart, it does not authenticate anyone (see ADR-019).
 
     Its own table rather than columns on `messages`: a message is written once, as
-    displayed, while feedback changes later and has its own timestamps. Only assistant
-    messages are rated; the service checks it (a CHECK cannot look at another row)."""
+    displayed, while feedback changes later, comes from several raters and has its own
+    timestamps. Only assistant messages are rated; the service checks it (a CHECK
+    cannot look at another row)."""
 
     __tablename__ = "message_feedback"
     __table_args__ = (
@@ -343,6 +348,7 @@ class MessageFeedback(Base):
     )
 
     message_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    rater_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
     tenant_id: Mapped[uuid.UUID]
     rating: Mapped[str] = mapped_column(Text)
     # Trimmed; null when the user left none. Never logged.

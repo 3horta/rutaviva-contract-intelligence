@@ -36,7 +36,7 @@ from dataclasses import dataclass
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
-from app.conversations.feedback import feedback_by_message
+from app.conversations.feedback import own_feedback, totals_by_message
 from app.conversations.resolver import (
     MAX_CONTEXT_TURNS,
     QuestionResolver,
@@ -56,6 +56,7 @@ from app.schemas.conversations import (
     ConversationList,
     ConversationOut,
     ConversationSummary,
+    FeedbackTotals,
     MessageFeedbackOut,
     MessageOut,
 )
@@ -431,23 +432,28 @@ def list_conversations(
 
 
 def get_conversation(
-    session: Session, tenant_id: uuid.UUID, conversation_id: uuid.UUID
+    session: Session,
+    tenant_id: uuid.UUID,
+    conversation_id: uuid.UUID,
+    rater_id: uuid.UUID | None = None,
 ) -> ConversationOut:
+    """The conversation and its messages; each answer with the feedback totals, and with
+    `rater_id`'s own feedback when given."""
     conversation = _get_or_404(session, tenant_id, conversation_id)
     messages = session.scalars(
         select(Message)
         .where(Message.conversation_id == conversation_id, Message.tenant_id == tenant_id)
         .order_by(Message.sequence)
     ).all()
-    feedback = feedback_by_message(
-        session, tenant_id, [m.id for m in messages if m.role == MessageRole.ASSISTANT]
-    )
+    answers = [m.id for m in messages if m.role == MessageRole.ASSISTANT]
+    own = own_feedback(session, tenant_id, answers, rater_id) if rater_id else {}
+    totals = totals_by_message(session, tenant_id, answers)
     return ConversationOut(
         id=conversation.id,
         title=conversation.title,
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
-        messages=[_message_out(message, feedback.get(message.id)) for message in messages],
+        messages=[_message_out(message, own, totals) for message in messages],
     )
 
 
@@ -538,7 +544,12 @@ def _summary(conversation: Conversation, message_count: int) -> ConversationSumm
     )
 
 
-def _message_out(message: Message, feedback: MessageFeedbackOut | None = None) -> MessageOut:
+def _message_out(
+    message: Message,
+    own: dict[uuid.UUID, MessageFeedbackOut] | None = None,
+    totals: dict[uuid.UUID, FeedbackTotals] | None = None,
+) -> MessageOut:
+    is_answer = message.role == MessageRole.ASSISTANT
     stored = dict(message.details or {})
     suggestions = stored.pop(SUGGESTIONS_KEY, None) or []
     return MessageOut(
@@ -551,7 +562,8 @@ def _message_out(message: Message, feedback: MessageFeedbackOut | None = None) -
         warnings=message.warnings,
         details=AnswerDetails.model_validate(stored) if stored else None,
         suggestions=suggestions,
-        feedback=feedback,
+        feedback=(own or {}).get(message.id),
+        feedback_totals=(totals or {}).get(message.id, FeedbackTotals()) if is_answer else None,
         created_at=message.created_at,
     )
 

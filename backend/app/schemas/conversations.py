@@ -35,10 +35,24 @@ FeedbackRatingOut = Literal["up", "down"]
 
 
 class MessageFeedbackOut(BaseModel):
-    """The user's rating of an answer. `comment` is trimmed, null when there is none."""
+    """One rater's rating of an answer. `comment` is trimmed, null when there is none."""
 
     rating: FeedbackRatingOut
     comment: str | None
+
+
+class FeedbackTotals(BaseModel):
+    """How many raters of the tenant found an answer useful (`up`) or not (`down`)."""
+
+    up: int = 0
+    down: int = 0
+
+
+class FeedbackResult(BaseModel):
+    """After a PUT or DELETE: this rater's feedback (null once cleared) and the totals."""
+
+    feedback: MessageFeedbackOut | None
+    totals: FeedbackTotals
 
 
 class MessageFeedbackIn(BaseModel):
@@ -71,8 +85,11 @@ class MessageOut(BaseModel):
     # Follow-up questions suggested after an `answered` turn (real LLM only; may be
     # empty, and arrive a moment after the answer).
     suggestions: list[str] = Field(default_factory=list)
-    # The user's rating of an answer; null when not rated (and on user messages).
+    # The rating of the rater named by `X-Rater-Id` on the request; null when that rater
+    # has not rated it, without the header, and on user messages.
     feedback: MessageFeedbackOut | None = None
+    # Ratings of all the tenant's raters; null on user messages.
+    feedback_totals: FeedbackTotals | None = None
     created_at: datetime
 
 

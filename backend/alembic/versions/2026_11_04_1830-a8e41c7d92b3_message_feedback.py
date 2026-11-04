@@ -1,10 +1,11 @@
-"""message_feedback: a user's rating of an answer
+"""message_feedback: ratings of an answer, one per rater
 
-One row per assistant message: `up` or `down` and an optional comment (trimmed, at most
-1000 characters). A composite FK `(message_id, tenant_id)` keeps it in the message's
-tenant (it needs a unique `(id, tenant_id)` on `messages`) and deletes it with the
-message. Same isolation as the other tenant tables: forced RLS with the tenant policy,
-and read/write for the app role.
+One row per assistant message and rater (an anonymous id the browser sends, not an
+identity): `up` or `down` and an optional comment (trimmed, at most 1000 characters).
+A composite FK `(message_id, tenant_id)` keeps it in the message's tenant (it needs a
+unique `(id, tenant_id)` on `messages`) and deletes it with the message. Same isolation
+as the other tenant tables: forced RLS with the tenant policy, and read/write for the
+app role.
 
 Downgrade drops the table (and its ratings) and the unique constraint it needed.
 
@@ -57,6 +58,7 @@ def upgrade() -> None:
     op.create_table(
         "message_feedback",
         sa.Column("message_id", sa.Uuid(), nullable=False),
+        sa.Column("rater_id", sa.Uuid(), nullable=False),
         sa.Column("tenant_id", sa.Uuid(), nullable=False),
         sa.Column("rating", sa.Text(), nullable=False),
         sa.Column("comment", sa.Text(), nullable=True),
@@ -83,7 +85,7 @@ def upgrade() -> None:
             name=op.f("fk_message_feedback_message_id_tenant_id_messages"),
             ondelete="CASCADE",
         ),
-        sa.PrimaryKeyConstraint("message_id", name=op.f("pk_message_feedback")),
+        sa.PrimaryKeyConstraint("message_id", "rater_id", name=op.f("pk_message_feedback")),
     )
     op.create_index(
         op.f("ix_message_feedback_tenant_id"), "message_feedback", ["tenant_id"], unique=False

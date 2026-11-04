@@ -158,7 +158,11 @@ are collected at the end once the related milestones are done.
   - `OMP_NUM_THREADS`/`MKL_NUM_THREADS` = 2 for the API and 2 for the worker (`API_TORCH_THREADS`, `WORKER_TORCH_THREADS`).
   - Worker concurrency is 1 (`WORKER_CONCURRENCY`): CPU-bound tasks in parallel only slow each other down.
 - **Rejected:** more worker processes, which oversubscribe the CPU.
-- **Known limit:** the keyless "LLM" ranks the sentences of the retrieved chunks with the embedding model at query time, so answers take seconds to tens of seconds on a small CPU. Embedding sentences at indexing time is the next step if it matters.
+- **Warm-up:** traces showed the first request after a restart paying for the model load (190 s for a 43 s turn). The model is now loaded, with one inference, in the API lifespan and in every worker process.
+- **Measured** on the target machine (Docker with 4 CPUs and 4 GB, nothing else running), with the defaults (pdfplumber, BGE, keyless LLM):
+  - a 2-page contract went from upload to `ready` in **19 s** (16 s of processing), against several minutes with Docling;
+  - a question took **15–22 s** end to end.
+- **Known limit:** the keyless "LLM" ranks the sentences of the retrieved chunks with the embedding model at query time; that is most of the 15–22 s. Embedding sentences at indexing time is the next step if it matters.
 
 ## ADR-010 · Chat backend: streamed phases, persisted turns, resolved follow-ups
 

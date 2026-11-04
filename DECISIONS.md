@@ -25,6 +25,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
 | [ADR-016](#adr-016--demo-sign-in-per-tenant) | Demo sign-in per tenant | Accepted |
 | [ADR-017](#adr-017--an-mcp-server-for-ai-agents-read-only-same-jwt-same-isolation) | An MCP server for AI agents: read-only, same JWT, same isolation | Accepted |
 | [ADR-018](#adr-018--ai-spans-follow-the-opentelemetry-genai-semantic-conventions) | AI spans follow the OpenTelemetry GenAI semantic conventions | Accepted |
+| [ADR-019](#adr-019--answer-feedback) | Answer feedback | Accepted |
 | [ADR-020](#adr-020--metrics-otel-genai-metrics-and-app-counters-exported-by-the-collector) | Metrics: OTel GenAI metrics and app counters, exported by the collector | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
@@ -435,6 +436,78 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - `test_check_traces.py`: the CI trace check passes on conforming Jaeger traces and fails on the old names, a missing attribute, a missing answer call or a missing link.
   - In CI, `scripts/check_traces.py` runs against the real stack's Jaeger.
 
+## ADR-019 · Answer feedback
+
+- **Context:** analysts need a quick way to say whether an answer helped, and why not, so weak answers can be found and the question set (ADR-014) can grow from real cases. Two people of the same team must each keep their own rating, but there are no users, only one JWT per tenant (ADR-016).
+- **Decision (who rates): an anonymous rater id per browser.**
+  - The first time it is needed, the web app makes up a random UUID and keeps it in `localStorage` (`src/api/rater.ts`). If storage is blocked, it keeps one in memory for the session.
+  - It is sent as `X-Rater-Id` with every feedback request and with `GET /conversations/{id}`. The API validates it as a UUID: missing or invalid on PUT / DELETE is a 422.
+  - **It is not authentication.** The tenant still comes from the JWT only, and anyone with the tenant's token could send any rater id. It only tells two browsers apart, so each sees and changes its own rating.
+- **Decision (interface):**
+  - Under each stored answer (`answered` or `insufficient_evidence`; never an interrupted turn or the answer being written), two toggle buttons sit next to Copy and Ask again: **Useful** and **Not useful**. They use `aria-pressed`, are labelled, reachable by keyboard, and disabled while another answer is being written, like Ask again. They show this browser's own choice.
+  - Next to them are the tenant's totals ("👍 3 · 👎 1"), with the accessible text "3 found it useful, 1 did not", updated from the server's answer after each change.
+  - Choosing a rating stores it at once and opens an optional comment box with Send and Cancel: "What was useful?" or "What went wrong?", at most 1000 characters. Escape cancels. Either way focus goes back to the chosen button, and a polite status says "Thanks for the feedback". A Comment button opens the box again, prefilled with the saved comment.
+  - Choosing the other rating replaces it and starts without a comment. Choosing the same one again takes it back.
+  - The change is shown at once and stored in the background, one request after another, so a quick change of mind is stored in order. A failed request puts back what was shown before and says so. The stored rating and totals are written into the cached conversation, so they are there when the answer is drawn again.
+  - One client function, `sendFeedback` (`src/api/feedback.ts`), PUTs the rating and DELETEs to clear it. The mock API implements the route with the same rules.
+- **Decision (storage):**
+  - A table `message_feedback`, keyed by `(message_id, rater_id)` (one rating per answer and rater), with:
+    - `tenant_id`;
+    - `rating`: `up` / `down`, enforced by a CHECK;
+    - `comment`: trimmed, null when blank, at most 1000 characters, also a CHECK;
+    - `created_at`, `updated_at`.
+  - Isolation as in ADR-002:
+    - a composite FK `(message_id, tenant_id)` to `messages`, which gets a unique `(id, tenant_id)` for it;
+    - forced RLS with the same tenant policy;
+    - read and write for the app role.
+  - `ON DELETE CASCADE`: a retry that replaces a turn, or a deleted conversation, takes its ratings along.
+  - `PUT /conversations/{id}/messages/{id}/feedback` with `{rating, comment?}` upserts this rater's row (`INSERT ... ON CONFLICT (message_id, rater_id) DO UPDATE`). `DELETE` removes only this rater's row. Both return `{feedback, totals}`, so the client shows the new counts without reloading.
+  - The tenant comes from the JWT only. A message that is not in that conversation of that tenant is a 404 Problem Details, like a missing one. A 422 is returned for:
+    - a question or an interrupted turn;
+    - an invalid body: unknown rating, unknown field, comment too long;
+    - a missing or invalid rater id.
+  - The conversation returns, on each answer:
+    - `feedback`: the caller's own rating, or null without the header;
+    - `feedback_totals`: `{up, down}` over all the tenant's raters.
+
+    Both are read in two queries for the whole conversation.
+  - Observability: a `feedback.recorded` log line (message id, rating or `cleared`, whether there is a comment) and `feedback.rating` on the request's span. Neither the comment (the user's text) nor the rater id (a per-browser identifier) is ever logged or put on a span.
+- **Rejected:**
+  - One rating per answer for the whole tenant: two analysts would overwrite each other.
+  - A rater id inside the JWT: tokens are per tenant, not per person (ADR-016), so it would not tell people apart.
+  - Columns on `messages`: a message is written once, as displayed; feedback comes from several raters, changes later and has its own timestamps and grants.
+  - Asking for a comment only after a negative rating: what made an answer useful is also worth knowing, and the box is optional and one keystroke away from closed.
+  - A modal dialog for the comment: it interrupts reading the thread for an optional note.
+  - Keeping every rating as history: one current rating per rater is what the analyst sees and what a quality review needs; the log line keeps the sequence.
+- **Consequences and limits:**
+  - The same person in two browsers (or a private window) counts as two raters.
+  - Clearing the browser's data starts a new rater: earlier ratings stay in the totals but can no longer be changed from that browser.
+  - Anyone with the tenant's token can rate as any rater id. This is acceptable for a quality signal, not for anything that needs accountability.
+  - With real users, the rater id would come from the token's subject instead of the header, and the table would not change.
+  - Ratings are stored, not yet used: there is no report or export of the "not useful" answers, and they do not feed the evaluation set automatically.
+- **Verified by:**
+  - `backend/tests/unit/test_feedback.py`:
+    - the body: trimmed, capped, closed set, no extra fields;
+    - the rater header: missing or invalid is a 422 on PUT and DELETE;
+    - what can be rated;
+    - the upsert and delete issued per rater;
+    - the log and span without the comment or the rater id;
+    - the routes' 200 / 404 / 422.
+  - `backend/tests/integration/test_feedback_api.py`, against real Postgres:
+    - one rater's upsert: one row, and `updated_at` moves;
+    - two raters on one answer: both stored, each sees their own, the totals count both, and clearing one keeps the other;
+    - without the header, totals only;
+    - the rater header refused when missing or invalid;
+    - questions and other conversations' messages refused;
+    - tenant B can neither rate nor see A's rating or totals, even with the same rater id;
+    - RLS hides and refuses rows of another tenant;
+    - the composite FK refuses a cross-tenant row even to the owner;
+    - the cascade on retry and delete.
+  - Frontend:
+    - `frontend/src/test/feedback.test.tsx`: rate, comment, change, cancel, Escape, take back, failure, not-enough-evidence answers, nothing while an answer is written, the rating back after reopening the conversation, the totals, and the saved comment prefilled;
+    - `src/api/feedback.test.ts` and `src/api/rater.test.ts`;
+    - an axe check with the comment box open (`src/test/a11y.test.tsx`).
+
 ## ADR-020 · Metrics: OTel GenAI metrics and app counters, exported by the collector
 
 - **Context:** the traces describe one request at a time. Questions such as "is the share of 'not enough information' rising?", "p95 of the LLM calls?" or "where do the tokens go?" need numbers aggregated over time. The signals existed (span attributes, stored fields), but nothing aggregated them. Docker on the target machine is already at its memory limit.
@@ -482,7 +555,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - Answers are rendered from a parsed Markdown subset (paragraphs, lists, bold, inline code) as React elements; `dangerouslySetInnerHTML` stays banned by lint.
   - Leaving the page or switching tenant aborts the stream (the page is remounted per tenant; the query cache is cleared).
 - **Rejected:** a global chat store that keeps answering after leaving the page (as the reference does): more state for little gain, since the backend stores the turn anyway.
-- **Left out:** feedback buttons, suggested follow-ups, dictation and charts: the backend has no support for them.
+- **Left out:** suggested follow-ups, dictation and charts: the backend has no support for them. (Feedback buttons came later: ADR-019.)
 - **Verified by:** `queryStream.test.ts` (split chunks, several events per chunk, CRLF, missing result, error event), `markdown.test.ts`, `grouping.test.ts`.
 
 ## ADR-F02 · CI runs the frontend checks in their own job

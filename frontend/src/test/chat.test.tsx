@@ -73,6 +73,8 @@ describe("chat", () => {
     expect(within(interrupted).getByText(/^Interrupted/)).toBeInTheDocument();
     expect(router.state.location.pathname).toMatch(/^\/chat\/[0-9a-f-]+$/);
     expect(answers()).toHaveLength(0); // not an answer
+    // Nothing to rate: the turn has no answer.
+    expect(within(interrupted).queryByRole("button", { name: "Useful" })).not.toBeInTheDocument();
 
     setMockTimeScale(0);
     fireEvent.click(within(interrupted).getByRole("button", { name: "Ask again" }));

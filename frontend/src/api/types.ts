@@ -85,6 +85,18 @@ export type ConversationMessage = Schemas["MessageOut"];
 export type MessageStatus = NonNullable<ConversationMessage["status"]>;
 export type ConversationDetail = Schemas["ConversationOut"];
 
+/** This browser's rating of an answer: `comment` is trimmed, null when there is none. */
+export type MessageFeedback = Schemas["MessageFeedbackOut"];
+/** How many of the tenant's raters found an answer useful (`up`) or not (`down`). */
+export type FeedbackTotals = Schemas["FeedbackTotals"];
+/** What PUT / DELETE .../feedback return: this rater's feedback (null once cleared) and the totals. */
+export type FeedbackResult = Schemas["FeedbackResult"];
+export type FeedbackRating = MessageFeedback["rating"];
+/** Body of PUT .../messages/{id}/feedback. */
+export type FeedbackInput = Schemas["MessageFeedbackIn"];
+/** At most this many characters of comment (the API rejects more). */
+export const FEEDBACK_COMMENT_MAX = 1_000;
+
 export interface ConversationListQuery {
   limit: number;
   offset: number;

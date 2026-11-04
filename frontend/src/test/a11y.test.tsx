@@ -45,6 +45,17 @@ describe("accessibility", () => {
     expect(await seriousViolations(container)).toEqual([]);
   });
 
+  it("chat with an answer rated and its comment box open", async () => {
+    const { container } = renderApp({ route: "/chat" });
+    const history = await screen.findByRole("navigation", { name: "Conversation history" });
+    fireEvent.click(await within(history).findByText("How does the tire supply agreement renew?"));
+    await screen.findByRole("region", { name: "Sources" });
+    const answer = screen.getAllByRole("article", { name: "Answer" })[0] as HTMLElement;
+    fireEvent.click(within(answer).getByRole("button", { name: "Not useful" }));
+    await within(answer).findByRole("form", { name: "Feedback comment" });
+    expect(await seriousViolations(container)).toEqual([]);
+  });
+
   it("chat with an interrupted turn", async () => {
     const { container } = renderApp({ route: "/chat" });
     setMockTimeScale(1); // real phase durations, so there is time to stop

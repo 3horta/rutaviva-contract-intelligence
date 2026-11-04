@@ -1,16 +1,18 @@
 import { AlertTriangle, Check, Copy, FileText, MessageCirclePlus, RotateCcw, SearchX, Square } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ApiError } from "../../api/errors";
-import type { Citation, ConversationMessage, PhaseUpdate } from "../../api/types";
+import type { Citation, ConversationMessage, FeedbackTotals, MessageFeedback, PhaseUpdate } from "../../api/types";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { ErrorAlert, Spinner } from "../../components/ui/Feedback";
 import { copyText } from "../../lib/clipboard";
+import { FeedbackButtons, FeedbackComment } from "./AnswerFeedback";
 import { AnswerDetailsView } from "./AnswerDetailsView";
 import { AnswerGuidance } from "./AnswerGuidance";
 import { Markdown } from "./Markdown";
 import { CONFIDENCE, INTERRUPTED_TEXT, PHASE_LABELS, PHASE_PROGRESS, warningLabel } from "./phases";
+import { useAnswerFeedback } from "./useAnswerFeedback";
 import styles from "./Message.module.css";
 
 export function UserMessage({ content }: { content: string }) {
@@ -72,11 +74,40 @@ interface AssistantMessageProps {
   onRetry?: () => void;
   /** Nothing can be changed while another answer is being written. */
   locked: boolean;
+  /** The stored conversation the answer belongs to: without it, it cannot be rated. */
+  conversationId?: string;
+  /** What this browser's rater has stored for this answer. */
+  feedback?: MessageFeedback | null;
+  /** Ratings of all the tenant's raters. */
+  feedbackTotals?: FeedbackTotals | null;
+  onFeedbackStored?: (feedback: MessageFeedback | null, totals: FeedbackTotals) => void;
 }
 
-export function AssistantMessage({ message, onRetry, locked }: AssistantMessageProps) {
+/** Only real answers are rated (not an interrupted turn, which has none). */
+const RATEABLE = new Set(["answered", "insufficient_evidence"]);
+
+export function AssistantMessage({
+  message,
+  onRetry,
+  locked,
+  conversationId,
+  feedback = null,
+  feedbackTotals = null,
+  onFeedbackStored,
+}: AssistantMessageProps) {
   const insufficient = message.status === "insufficient_evidence";
   const confidence = message.confidence && !insufficient ? CONFIDENCE[message.confidence] : null;
+  const rateable = Boolean(conversationId) && RATEABLE.has(message.status ?? "");
+  const rating = useAnswerFeedback({
+    conversationId: conversationId ?? "",
+    messageId: message.id,
+    initial: feedback,
+    initialTotals: feedbackTotals,
+    onStored: onFeedbackStored,
+  });
+  const ratingRef = useRef<HTMLDivElement>(null);
+  const focusRating = () =>
+    ratingRef.current?.querySelector<HTMLButtonElement>('[aria-pressed="true"]')?.focus();
 
   return (
     <article className={`${styles.answer} ${insufficient ? styles.insufficient : ""}`} aria-label="Answer">
@@ -123,7 +154,9 @@ export function AssistantMessage({ message, onRetry, locked }: AssistantMessageP
             icon={<RotateCcw size={15} aria-hidden="true" />}
           />
         )}
+        {rateable && <FeedbackButtons state={rating} locked={locked} groupRef={ratingRef} />}
       </div>
+      {rateable && rating.commenting && <FeedbackComment state={rating} onClosed={focusRating} />}
     </article>
   );
 }

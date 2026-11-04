@@ -68,7 +68,7 @@ def two_tenants(owner_engine: Engine) -> Iterator[tuple[uuid.UUID, uuid.UUID]]:
             session.add(Tenant(id=tenant_id, name=f"test-{tenant_id}"))
     yield ids
     with owner_engine.begin() as conn:
-        for table in ("messages", "conversations", "chunks", "documents"):
+        for table in ("message_feedback", "messages", "conversations", "chunks", "documents"):
             conn.execute(
                 text(f"DELETE FROM {table} WHERE tenant_id = ANY(:ids)"), {"ids": list(ids)}
             )

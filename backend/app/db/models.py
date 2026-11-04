@@ -76,6 +76,15 @@ class Confidence(StrEnum):
     HIGH = "high"
 
 
+class FeedbackRating(StrEnum):
+    UP = "up"
+    DOWN = "down"
+
+
+# Longest comment kept with a rating (after trimming).
+FEEDBACK_COMMENT_MAX_CHARS = 1000
+
+
 def _in(column: str, enum: type[StrEnum]) -> str:
     values = ", ".join(f"'{member.value}'" for member in enum)
     return f"{column} IN ({values})"
@@ -274,6 +283,8 @@ class Message(Base):
         # Only answers have a status.
         CheckConstraint("(role = 'assistant') = (status IS NOT NULL)", name="status_role"),
         Index(None, "tenant_id"),
+        # Target of the composite FK of `message_feedback`.
+        UniqueConstraint("id", "tenant_id"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(primary_key=True, default=uuid.uuid4)
@@ -306,3 +317,41 @@ class Message(Base):
     created_at: Mapped[datetime] = _created_at()
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")
+
+
+class MessageFeedback(Base):
+    """A rating of an answer: one per assistant message and rater, replaced when that
+    rater rates it again, and deleted with the message (a retry or a deleted
+    conversation takes it along).
+
+    `rater_id` is an anonymous id the browser makes up and sends (`X-Rater-Id`); it
+    tells raters apart, it does not authenticate anyone (see ADR-019).
+
+    Its own table rather than columns on `messages`: a message is written once, as
+    displayed, while feedback changes later, comes from several raters and has its own
+    timestamps. Only assistant messages are rated; the service checks it (a CHECK
+    cannot look at another row)."""
+
+    __tablename__ = "message_feedback"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["message_id", "tenant_id"],
+            ["messages.id", "messages.tenant_id"],
+            ondelete="CASCADE",
+        ),
+        CheckConstraint(_in("rating", FeedbackRating), name="rating"),
+        CheckConstraint(
+            f"comment IS NULL OR char_length(comment) BETWEEN 1 AND {FEEDBACK_COMMENT_MAX_CHARS}",
+            name="comment_length",
+        ),
+        Index(None, "tenant_id"),
+    )
+
+    message_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    rater_id: Mapped[uuid.UUID] = mapped_column(primary_key=True)
+    tenant_id: Mapped[uuid.UUID]
+    rating: Mapped[str] = mapped_column(Text)
+    # Trimmed; null when the user left none. Never logged.
+    comment: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()

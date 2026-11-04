@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
+from app.db.models import FEEDBACK_COMMENT_MAX_CHARS
 from app.schemas.query import AnswerDetails, Citation, Confidence
 
 MessageRoleOut = Literal["user", "assistant"]
@@ -30,6 +31,44 @@ class ConversationList(BaseModel):
     results: list[ConversationSummary]
 
 
+FeedbackRatingOut = Literal["up", "down"]
+
+
+class MessageFeedbackOut(BaseModel):
+    """One rater's rating of an answer. `comment` is trimmed, null when there is none."""
+
+    rating: FeedbackRatingOut
+    comment: str | None
+
+
+class FeedbackTotals(BaseModel):
+    """How many raters of the tenant found an answer useful (`up`) or not (`down`)."""
+
+    up: int = 0
+    down: int = 0
+
+
+class FeedbackResult(BaseModel):
+    """After a PUT or DELETE: this rater's feedback (null once cleared) and the totals."""
+
+    feedback: MessageFeedbackOut | None
+    totals: FeedbackTotals
+
+
+class MessageFeedbackIn(BaseModel):
+    """Body of `PUT .../feedback`. A blank comment is stored as none."""
+
+    model_config = {"extra": "forbid"}
+
+    rating: FeedbackRatingOut
+    comment: (
+        Annotated[
+            str, StringConstraints(strip_whitespace=True, max_length=FEEDBACK_COMMENT_MAX_CHARS)
+        ]
+        | None
+    ) = None
+
+
 class MessageOut(BaseModel):
     """A stored message. `status`, `confidence` and `details` are null for user messages
     (and `citations` / `warnings` / `suggestions` empty). An `interrupted` answer has
@@ -46,6 +85,11 @@ class MessageOut(BaseModel):
     # Follow-up questions suggested after an `answered` turn (real LLM only; may be
     # empty, and arrive a moment after the answer).
     suggestions: list[str] = Field(default_factory=list)
+    # The rating of the rater named by `X-Rater-Id` on the request; null when that rater
+    # has not rated it, without the header, and on user messages.
+    feedback: MessageFeedbackOut | None = None
+    # Ratings of all the tenant's raters; null on user messages.
+    feedback_totals: FeedbackTotals | None = None
     created_at: datetime
 
 

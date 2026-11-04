@@ -212,6 +212,7 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 - MCP server at `/mcp` for AI agents: four read-only tools (search, read in context, list, ask) and a review prompt, with the same JWT and tenant isolation as the API.
 - Chat over SSE with live phases, persisted conversations (search, rename, delete) and follow-up questions; with a real LLM, generated conversation titles and suggested follow-ups; a stopped answer keeps its question to ask again.
 - When an answer is refused, the chat says why, suggests a more specific question and links the closest passages found; disagreeing sources and excluded passages are named with links to their pages.
+- Feedback on answers: 👍/👎 with an optional comment, one per answer and browser (an anonymous rater id, not a login), with the team's totals, under the same tenant isolation (ADR-019).
 - React app: upload with status, document table with state in the URL, PDF viewer with the cited passage highlighted, chat with citations and export, dark mode, accessibility tests.
 - OpenTelemetry: one trace from the upload's HTTP request through the Celery task; queries traced with the LLM's latency and tokens, linked to the ingestion traces; JSON logs with `trace_id`.
 - Docker Compose for everything, environment-based configuration, reproducible migrations, and CI.
@@ -222,7 +223,6 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 - **Reranking:** the cross-encoder is English-only and its effect has not been recalibrated into the keyless answer rule (ADR-015).
 - **Metrics:** no Prometheus/Grafana containers or alert rules; the metrics are exposed by the collector on `:8889` for any Prometheus to scrape (ADR-020).
 - **Traces from the browser:** traces start at the API.
-- **Product features:** 👍/👎 feedback on answers.
 - **Operations:** a periodic sweep of expired leases (an expired lease is taken over when the task is delivered again), a transactional outbox for enqueuing (a crash between the upload's commit and the enqueue leaves the document `pending`), Docker secrets for provider keys, and a pre-built image in a registry.
 - **Deleting documents:** there is no endpoint to delete a document with its file and chunks.
 - **Users:** auth is one test JWT per tenant; there are no users, passwords, roles or token revocation. The demo sign-in buttons only hand out those JWTs to whoever can reach the API (ADR-016); they are not real authentication.

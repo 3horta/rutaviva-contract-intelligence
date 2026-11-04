@@ -1,0 +1,12 @@
+/* Outside the shell (the shell itself failed), the block still needs room around it. */
+.standalone {
+  padding: 24px;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 6px;
+}

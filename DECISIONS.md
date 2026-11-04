@@ -14,7 +14,9 @@ are collected at the end once the related milestones are done.
 | [ADR-004](#adr-004--no-document-is-left-stuck-in-processing) | No document is left stuck in `processing` | Accepted (schema done; task logic in progress) |
 | [ADR-005](#adr-005--closed-set-of-failure-codes) | Closed set of failure codes | Accepted |
 | [ADR-006](#adr-006--ci-fails-instead-of-skipping-the-database-tests) | CI fails instead of skipping the database tests | Accepted |
-| [ADR-F01](#adr-f01--chat-sse-read-with-fetch-server-as-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
+| [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
+| [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
+| [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
 
 ---
 
@@ -127,3 +129,13 @@ are collected at the end once the related milestones are done.
 - **Rejected:** a global chat store that keeps answering after leaving the page (as the reference does): more state for little gain, since the backend stores the turn anyway.
 - **Left out:** feedback buttons, suggested follow-ups, dictation and charts: the backend has no support for them.
 - **Verified by:** `queryStream.test.ts` (split chunks, several events per chunk, CRLF, missing result, error event), `markdown.test.ts`, `grouping.test.ts`.
+
+## ADR-F02 · CI runs the frontend checks in their own job
+
+- **Decision:** a `frontend` job on Node 22 (the version of the Docker build), with the npm cache keyed on `frontend/package-lock.json`: `npm ci` → lint → typecheck → tests → build. It runs in parallel with the backend job and does not need a database or a running API (the tests use the in-memory mock API).
+- **Consequence:** a broken build or a type error fails the PR even when only backend code changed in the same push.
+
+## ADR-F03 · Route errors keep the shell
+
+- **Decision:** two `errorElement`s. One on a pathless route that wraps every page, so a page that throws shows `RouteErrorPage` inside the shell and the sidebar keeps working. One on the root, for when the shell itself fails. A `404` route response reads "Page not found"; anything else reads "Something went wrong", with "Back to the dashboard" and "Reload". The error goes to the console only in development; users never see a stack trace.
+- The routes live in `src/routes.tsx`, shared by the browser router and the tests' memory router.

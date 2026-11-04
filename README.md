@@ -1,99 +1,123 @@
-# rutaviva-contract-intelligence
+# Rutaviva Contract Intelligence
 
-Contract intelligence platform for RutaViva.
+A multi-tenant assistant for supplier contracts. A procurement team uploads contract PDFs; a worker processes them in the background (text, chunks with their page, embeddings); then the team asks questions in plain language and gets answers with clickable citations (document, page, and the passage highlighted on the PDF). Two teams never see each other's documents.
 
-## Structure
+It runs **with no paid keys**: a keyless extractive LLM and a real embedding model that runs locally. A real LLM (Gemini through LiteLLM) can replace the keyless one with an environment variable.
 
-- `backend/` — FastAPI API, ingestion, hybrid retrieval, generation, Celery worker
-- `frontend/` — Vite + React + TS
-- `infra/` — OpenTelemetry Collector and Nginx configuration
-- `sample_data/` — sample PDF generator and evaluation questions
-- `notes/` — decisions and AI usage log
+**Stack:** FastAPI · Celery + Redis · PostgreSQL 16 + pgvector · React 18 + TypeScript · OpenTelemetry → Jaeger · Docker Compose · GitHub Actions.
 
-## Frontend
+Design decisions, the answers to the brief's open questions, known limits and how generative AI was used are in [DECISIONS.md](DECISIONS.md).
 
-**Stack:**
-- React 18 + TypeScript (strict, `noUncheckedIndexedAccess`) on Vite.
-- TanStack Query for server state.
-- React Router 6 for URLs.
-- Plain CSS Modules over design tokens (`src/styles/tokens.css`, light and dark).
-- PDF.js for the viewer; jsPDF for the chat export (both loaded lazily).
+---
 
-There is no UI kit: the few primitives live in `src/components/ui`. That keeps the bundle small and every line of styling readable.
+## Start it (one command)
 
-**Structure (by feature):**
-
-```
-frontend/src/
-  api/          client (auth header, Problem Details → ApiError), endpoints, SSE stream, types
-  auth/         token store per tenant, token screens, tenant switcher
-  components/ui buttons, badges, panels, states (loading / empty / error), fields
-  features/     dashboard, documents (list, detail, viewer), upload, chat
-  layout/       app shell, route error page
-  mocks/        in-memory API for VITE_USE_MOCKS=true (also used by the tests)
-  test/         renderApp helper and whole-app tests
-```
-
-**Data flow:**
-1. `authStore` (one token per tenant, in `sessionStorage`).
-2. `apiRequest` adds `Authorization`, turns any non-2xx into an `ApiError` and flags a 401.
-3. React Query hooks per feature (`features/*/queries.ts`) cache and poll.
-4. Components.
-
-Answers stream from `POST /query/stream`. `api/queryStream.ts` reads the Server-Sent Events with `fetch`, because `EventSource` cannot POST nor send headers. The UI never sees the SSE details.
-
-**Run it** (in `frontend/`):
+Requirements: Docker with Compose v2, and about 4 GB of memory and 6 GB of disk for Docker.
 
 ```bash
-npm ci
-npm run dev          # http://localhost:5173, proxies /api to the API on :8000
-npm run dev:mocks    # no backend: the API is simulated in the browser ("Use demo tokens")
+docker compose up --build        # or: make up  (same thing, in the background)
 ```
 
-In Docker, `make up` serves the build with Nginx on `http://localhost:8080` (same origin for `/api`, strict CSP).
+No `.env` is needed. The first build takes several minutes: it downloads the embedding model (`BAAI/bge-base-en-v1.5`) into the image, so nothing is downloaded at run time. When `api`, `worker` and `web` are `healthy` (`docker compose ps`):
 
-In mock mode the chat recognises a few test questions:
-- `outage` gives a 503 and `timeout` a 504;
-- a question about the weather gets "not enough evidence";
-- a question that spans several suppliers carries a warning;
-- a question that mentions `instructions` shows an excluded fragment.
+| What | Where |
+|---|---|
+| Web app | http://localhost:8080 |
+| API docs (Swagger) | http://localhost:8000/docs |
+| Traces (Jaeger) | http://localhost:16686 |
 
-**Types from the API:**
-- `src/api/schema.d.ts` is generated from the committed `frontend/openapi.json`, and `src/api/types.ts` derives the app's names from it.
-- After a backend change, with the API running:
-  - `curl -s http://localhost:8000/openapi.json | python3 -m json.tool --indent 2 > frontend/openapi.json`
-  - then `npm run gen:types`.
-- CI fails if `schema.d.ts` is out of date.
+On start, the one-shot `migrate` service generates the JWT signing key into a Docker volume, applies the migrations and creates two tenants: `tenant_a` (Fleet Procurement) and `tenant_b` (Freight & Risk Procurement).
 
-**Tests:**
-- Run `npm test` (Vitest + Testing Library + jest-axe), with `npm run lint` and `npm run typecheck` alongside.
-- Unit tests cover the SSE parser, the Markdown parser, table URL state, upload queue, grouping and token contrast (WCAG AA in both themes).
-- `src/test/` renders the whole app over the mock API: sign-in, 401, tenant isolation, upload, the chat's states and accessibility.
+## A five-minute tour
 
-**Key decisions** (details in `DECISIONS.md`, ADR-F01 to ADR-F09):
-- **State in the URL:** table page, sort, search and filter, and the open conversation (`/chat/:id`). Back and shared links restore them.
-- **Conditional polling:** lists and details poll only while a document is still pending or processing.
-- **Tenant isolation:**
-  - Switching tenant empties the query cache and remounts the pages, which also aborts uploads and the answer in progress.
-  - Another tenant's document is a "not found".
-- **Mocks at the fetch level:** the real client, error handling and queries run unchanged in the demo and in the tests.
-- **Markdown without `innerHTML`:** answers are parsed into data and drawn as React elements. `dangerouslySetInnerHTML` is banned by lint.
-- **CSP:** `script-src 'self'` and `style-src 'self'`, with no `unsafe-inline` and no `unsafe-eval`. The pre-paint theme script is a file, not inline.
+1. **Get a token per tenant** (test JWTs, valid 24 h):
+   ```bash
+   make token tenant=tenant_a
+   make token tenant=tenant_b
+   ```
+2. **Sign in:** open http://localhost:8080 and paste the `tenant_a` token. Add the `tenant_b` one as well: the top bar switches between them.
+3. **Upload:** drag the PDFs of [`sample_data/pdfs/tenant_a/`](sample_data/pdfs/tenant_a). Each one goes `pending` → `processing` → `ready` (about 20 s for a 2-page contract on a 4-CPU machine). `corrupted_contract.pdf` ends `failed` with `corrupt_pdf`; uploading the same PDF twice says it is already there.
+4. **Ask** (Chat), as `tenant_a`:
+   - *"What is the penalty for late tire delivery?"*: the agreement and its SLA exhibit disagree. The answer cites both and its confidence is capped at medium.
+   - *"Is there a minimum monthly volume commitment in the PetroRuta fuel agreement, and what happens if we buy less?"*: an exhibit of that PDF carries a prompt injection. It is excluded and the answer says so.
+   - *"Is refrigeration breakdown on reefer trailers covered by any of our contracts?"*: no contract covers it, so the answer is "There is not enough information in your documents to answer this question."
+   - Click a citation: the PDF opens on that page with the passage highlighted.
+5. **Isolation:** switch to `tenant_b`. The documents of A are gone, and the same questions find nothing of A's. Upload `sample_data/pdfs/tenant_b/` and ask *"What is the detention rate and how much free time applies at each pickup or delivery appointment?"*.
+6. **Traces:** in Jaeger, service `rutaviva-api`:
+   - operation `POST /documents`: one trace crosses the API and the worker (extract, chunk, embed, store);
+   - operation `POST /query/stream`: retrieval, the LLM call with its latency and tokens, and a link to the ingestion trace of each document used.
+   - Every log line carries the same `trace_id` (`docker compose logs worker`).
 
-**Left out, and why:**
-- 👍/👎 feedback, suggested follow-ups, dictation and charts in answers: the backend does not support them.
-- Playwright end-to-end tests and error reporting (Sentry): out of scope for the test.
-- i18n: the UI is English only.
+More questions, with the expected answers and pages, are in [`sample_data/questions.yaml`](sample_data/questions.yaml).
 
-## Evaluation
+## Keyless mode and a real LLM
 
-Quality is checked by behaviour, not by scores (see ADR-014 in `DECISIONS.md`). With the stack up (`make up`):
+| Setting | Default (no key) | Real provider |
+|---|---|---|
+| `LLM_PROVIDER` | `fake`: an extractive LLM that answers with the contract's own sentences, ranked with the embedding model, behind a calibrated "not enough information" rule | `litellm`, with `LLM_MODEL=gemini/gemini-3.5-flash` and `GEMINI_API_KEY` |
+| `EMBEDDINGS_PROVIDER` | `local`: BGE base (768 dimensions) on the CPU, inside the image | `gemini` (re-upload the documents after switching) |
+| `TEXT_EXTRACTOR` | `pdfplumber` | `docling` (build with `WITH_DOCLING_MODELS=true`; minutes per PDF on a CPU) |
+
+To use a real LLM, copy `.env.example` to `.env`, set those values and run `docker compose up -d`. A real provider without its key stops start-up with a clear message; it never falls back to the fake one silently. The fake LLM can also simulate failures for testing (`FAKE_LLM_MODE=invalid | invalid_once | timeout | empty`).
+
+## Tests
 
 ```bash
-make eval                                    # every question in sample_data/questions.yaml
-make eval ARGS="--kinds isolation,injection --repeat 3"
-make eval ARGS="--only carrier-detention-rate,customs-brokerage-absent --no-upload"
-make eval-real PDFS=/path/to/pdfs            # held-out real contracts (one subfolder per tenant)
+# Backend: unit, contract and integration tests (integration ones use the real Postgres)
+docker compose up -d db
+make test                        # cd backend && uv run pytest   (needs uv)
+
+# Frontend: lint, types, tests, build
+cd frontend && npm ci && npm run lint && npm run typecheck && npm test && npm run build
+
+# Behaviour evaluation against the running stack (sample PDFs + verification questions)
+make eval
 ```
 
-The harness uploads each tenant's sample PDFs (duplicates are fine), waits for them to be processed, asks every question in a fresh conversation and checks the outcome, the cited page, required and forbidden strings, that no cited or retrieved chunk belongs to another tenant, the confidence cap and the warnings. It also checks that every number in an answer appears in a cited quote. It prints one line per case (`PASS`, `FAIL`, `WARN` for soft cases, `FLAKY` for mixed results over `--repeat`), a summary per kind and the p50/p95 latency, and exits 1 if a non-soft case fails.
+- **Unit:** chunking, PDF extraction, LLM output validation (JSON, schema, grounding), guardrails, ranking, follow-up resolution, configuration.
+- **Integration (real PostgreSQL):** hybrid search, tenant isolation through the API and under RLS, the Celery task with failure and retry, duplicates, corrupt and empty PDFs.
+- **The LLM and the embeddings are simulated in tests** (`EMBEDDINGS_PROVIDER=fake`, a deterministic hashing embedder), so tests need no model and no network.
+- **Evaluation:** `make eval` uploads the sample PDFs, asks the 21 questions and checks behaviour: the outcome, the cited page, required and forbidden strings, that nothing of another tenant is retrieved, confidence caps and warnings. Last run: 16 pass, 4 soft warnings, 1 soft miss (details in ADR-014).
+
+**CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs four jobs:
+- **backend:** lint, migrations up, down and up again, tests against a real Postgres; it fails if the database tests are skipped or the OpenAPI document is out of date;
+- **frontend:** lint, generated types, type check, tests, build;
+- **e2e:** the whole stack with `docker compose up --build`, `make eval`, and a check of the traces through Jaeger's API;
+- **gitleaks:** a secret scan.
+
+## Repository layout
+
+```
+backend/        FastAPI API, Celery worker, ingestion, retrieval, generation, migrations, tests
+  app/          api/ auth/ ingestion/ retrieval/ generation/ conversations/ providers/ worker/ core/
+  scripts/      eval harness, token issuer, calibration, OpenAPI export, trace check
+frontend/       React + TypeScript app (see frontend/README.md)
+infra/          OpenTelemetry Collector and Nginx configuration
+sample_data/    fictitious contract PDFs (and their generator), verification questions, calibration set
+DECISIONS.md    ADRs, open questions, limits, use of generative AI
+```
+
+## What is done
+
+- Upload per tenant returns the id and `pending` at once; type (magic bytes) and size validated; duplicates detected by SHA-256 per tenant.
+- Celery task (Redis broker): extract → chunk by page, with bounding boxes → embed → store. Idempotent and retryable: a lease with attempts and fencing, `acks_late`, and a closed set of failure codes. No document is left stuck in `processing`.
+- Hybrid search: pgvector plus PostgreSQL full text, fused with weighted RRF in one SQL query, always filtered by tenant.
+- Answers validated in three layers (JSON, Pydantic schema, quotes grounded in the chunks), with a retry carrying the error and an explicit "not enough information" otherwise. Timeouts and transient errors have bounded retries.
+- Tenant isolation: a JWT per tenant, a `tenant_id` filter, and forced Row Level Security under a non-owner role.
+- Prompt injection in documents is detected at ingestion; flagged chunks are excluded and the answer warns. Disagreeing sources cap the confidence.
+- Chat over SSE with live phases, persisted conversations (search, rename, delete) and follow-up questions.
+- React app: upload with status, document table with state in the URL, PDF viewer with the cited passage highlighted, chat with citations and export, dark mode, accessibility tests.
+- OpenTelemetry: one trace from the upload's HTTP request through the Celery task; queries traced with the LLM's latency and tokens, linked to the ingestion traces; JSON logs with `trace_id`.
+- Docker Compose for everything, environment-based configuration, reproducible migrations, and CI.
+
+## What is not done
+
+- **OCR:** a scanned PDF fails with `empty_pdf` ("no extractable text").
+- **Reranking:** no cross-encoder. With a real LLM a relevance judge filters the candidates; in keyless mode the fused order is used.
+- **Metrics:** no OpenTelemetry metrics or dashboards (Prometheus or Grafana); quality and cost signals are span attributes and logs.
+- **Traces from the browser:** traces start at the API.
+- **Product features:** 👍/👎 feedback on answers, suggested follow-up questions.
+- **Operations:** a periodic sweep of expired leases (an expired lease is taken over when the task is delivered again), Docker secrets for provider keys, and a pre-built image in a registry.
+- **Users:** auth is one test JWT per tenant; there are no users, roles or token revocation.
+
+The reasons, and what each would cost, are in [DECISIONS.md](DECISIONS.md).

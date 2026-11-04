@@ -5,6 +5,7 @@ import { queryClient } from "./api/queryClient";
 import { ButtonLink } from "./components/ui/Button";
 import { StateBlock } from "./components/ui/Feedback";
 import { Page } from "./components/ui/Page";
+import { ChatPage } from "./features/chat/ChatPage";
 import { DashboardPage } from "./features/dashboard/DashboardPage";
 import { DocumentDetailPage } from "./features/documents/detail/DocumentDetailPage";
 import { DocumentsPage } from "./features/documents/list/DocumentsPage";
@@ -33,6 +34,8 @@ const router = createBrowserRouter([
       { path: "documents", element: <DocumentsPage /> },
       // Optional ?page=N&chunk=<id>: opens the viewer on a cited fragment.
       { path: "documents/:id", element: <DocumentDetailPage /> },
+      // One route for both, so the page stays mounted when a new chat gets its id.
+      { path: "chat/:conversationId?", element: <ChatPage /> },
       { path: "*", element: <NotFoundPage /> },
     ],
   },

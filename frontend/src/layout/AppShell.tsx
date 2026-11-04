@@ -1,4 +1,4 @@
-import { FileText, LayoutDashboard, Menu, Moon, Sun } from "lucide-react";
+import { FileText, LayoutDashboard, Menu, MessageSquareText, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
 import { TenantSwitcher } from "../auth/TenantSwitcher";
@@ -13,6 +13,7 @@ import styles from "./AppShell.module.css";
 const NAV_ITEMS = [
   { to: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { to: "/documents", label: "Documents", icon: FileText },
+  { to: "/chat", label: "Chat", icon: MessageSquareText },
 ] as const;
 
 export function AppShell() {
@@ -43,7 +44,7 @@ export function AppShell() {
 
       <aside
         id="sidebar"
-        className={styles.sidebar}
+        className={`${styles.sidebar} no-print`}
         onKeyDown={(event) => event.key === "Escape" && setMenuOpen(false)}
       >
         <NavLink to="/dashboard" className={styles.brand} aria-label="Rutaviva Contract Intelligence, home">
@@ -78,7 +79,7 @@ export function AppShell() {
       )}
 
       <div className={styles.body}>
-        <header className={styles.topbar}>
+        <header className={`${styles.topbar} no-print`}>
           <Button
             variant="text"
             iconOnly

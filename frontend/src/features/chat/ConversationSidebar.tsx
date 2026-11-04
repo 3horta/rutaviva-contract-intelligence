@@ -3,7 +3,7 @@ import { useId, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import type { ConversationSummary } from "../../api/types";
 import { Button } from "../../components/ui/Button";
-import { ErrorAlert, Spinner } from "../../components/ui/Feedback";
+import { ErrorAlert, LoadingState, Spinner } from "../../components/ui/Feedback";
 import { Input } from "../../components/ui/Field";
 import { useDebouncedValue } from "../../lib/useDebouncedValue";
 import { groupConversations } from "./grouping";
@@ -116,7 +116,7 @@ export function ConversationSidebar({ activeId, locked, onNewChat }: Conversatio
         {mutationError != null && <ErrorAlert error={mutationError} title="The change was not saved" />}
 
         <nav className={styles.items} aria-label="Conversation history">
-          {list.isPending && <p className={styles.note}>Loading…</p>}
+          {list.isPending && <LoadingState label="Loading conversations…" compact />}
           {list.isSuccess && conversations.length === 0 && (
             <p className={styles.note}>{search ? "No conversation matches that search." : "No conversations yet."}</p>
           )}

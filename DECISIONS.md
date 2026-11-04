@@ -25,6 +25,7 @@ are collected at the end once the related milestones are done.
 | [ADR-F04](#adr-f04--a-strict-content-security-policy-for-the-web-app) | A strict Content-Security-Policy for the web app | Accepted |
 | [ADR-F05](#adr-f05--frontend-types-generated-from-a-committed-openapi-document) | Frontend types generated from a committed OpenAPI document | Accepted |
 | [ADR-F06](#adr-f06--whole-app-tests-over-the-mock-api) | Whole-app tests over the mock API | Accepted |
+| [ADR-F07](#adr-f07--accessibility-checked-by-tests-contrast-checked-on-the-tokens) | Accessibility checked by tests; contrast checked on the tokens | Accepted |
 
 ---
 
@@ -292,3 +293,14 @@ are collected at the end once the related milestones are done.
   - A new conversation was fetched before the backend had stored it: a 404 replaced the answer in progress. Fixed: the query waits for the first turn.
   - The mock upload used `Blob.arrayBuffer`, which jsdom lacks. It now reads files with `FileReader`.
 - **Cost:** the tests wait up to 10 s per query (`asyncUtilTimeout`) and 30 s per test. That is generous, but a full-app test in jsdom on a slow CI runner needs it.
+
+## ADR-F07 · Accessibility checked by tests; contrast checked on the tokens
+
+- **Decision:**
+  - `src/test/a11y.test.tsx` runs axe (jest-axe 10.0.0) on the dashboard, documents, document detail and an answered chat, once their data is on screen. It fails on any serious or critical violation.
+  - axe cannot measure contrast in jsdom (there is no layout), so `src/styles/contrast.test.ts` computes the WCAG ratio of every text/background token pair the components use, in both themes. Translucent dark-theme backgrounds are composited over the surface first. Every pair must reach 4.5:1.
+- **Found and fixed:** in the light theme, `--rv-muted` (3.8–4.2:1), `--rv-success` on its soft background (4.46:1) and `--rv-warning` (3.9–4.1:1) were below AA. Each was darkened by the smallest step that passes: `#636d7f`, `#167d48`, `#a5590e`. The dark theme already passed.
+- **Responsive:**
+  - Reviewed in the CSS: every page collapses to one column (dashboard and detail below 1000 px, chat below 900 px with the history folded behind a "History" button). Wide tables scroll inside their own wrapper, so the page itself never scrolls sideways.
+  - Not verified with screenshots at 375 and 1280 px: no automated browser could run in this environment. That check is pending.
+- **States:** every page uses the same `LoadingState`, `StateBlock` (empty, not found) and `ErrorAlert` (with the trace id) pieces. "No permission" is the shell's token screens (401). Another tenant's document or conversation is a 404, shown as "not found", exactly like a missing one.

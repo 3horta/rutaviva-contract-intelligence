@@ -14,7 +14,7 @@
 
   --rv-text: #1f2836;
   --rv-text-soft: #4b5566;
-  --rv-muted: #717d91;
+  --rv-muted: #636d7f;
 
   --rv-bg: #f3f5f8;
   --rv-surface: #ffffff;
@@ -24,9 +24,9 @@
   --rv-input-border: #c8d0dc;
   --rv-overlay: rgb(15 20 28 / 45%);
 
-  --rv-success: #17804a;
+  --rv-success: #167d48;
   --rv-success-soft: #e7f6ee;
-  --rv-warning: #b86410;
+  --rv-warning: #a5590e;
   --rv-warning-soft: #fdf1df;
   --rv-danger: #c0303b;
   --rv-danger-text: #a3222d;

@@ -221,6 +221,29 @@
   overflow-wrap: anywhere;
 }
 
+/* A chunk excluded as a possible prompt injection: struck through, never cited. */
+.flaggedRow td {
+  color: var(--rv-muted);
+}
+
+.flaggedRow a {
+  text-decoration: line-through;
+}
+
+.flagged {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 8px;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: var(--rv-danger-soft);
+  color: var(--rv-danger-text);
+  font-size: 0.7rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
 .facts {
   display: flex;
   flex-wrap: wrap;

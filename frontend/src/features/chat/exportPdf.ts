@@ -1,7 +1,7 @@
 import type { jsPDF } from "jspdf";
 import type { ConversationMessage } from "../../api/types";
 import { parseMarkdown, plainText } from "../../lib/markdown";
-import { CONFIDENCE } from "./phases";
+import { CONFIDENCE, warningLabel } from "./phases";
 
 const MARGIN = 56;
 const LINE_HEIGHT = 1.4;
@@ -86,7 +86,7 @@ function writeAnswer(writer: PdfWriter, message: ConversationMessage) {
   if (message.confidence && message.status === "answered") {
     writer.text(CONFIDENCE[message.confidence].label, { size: 9, muted: true });
   }
-  message.warnings.forEach((warning) => writer.text(`Warning: ${warning}`, { size: 9, muted: true }));
+  message.warnings.forEach((warning) => writer.text(`Warning: ${warningLabel(warning)}`, { size: 9, muted: true }));
   if (message.citations.length) {
     writer.space(4);
     writer.text("Sources", { size: 9, bold: true });

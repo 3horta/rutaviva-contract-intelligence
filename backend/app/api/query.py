@@ -124,8 +124,9 @@ def query(
             "description": (
                 "Events: `conversation` (first), `phase` (0..n), then `result` "
                 "(a QueryResponse) or `error` (Problem Details). After `result`, with a "
-                "real LLM only: `suggestions` (SuggestionsEvent) when there are any, and "
-                "`title` (TitleEvent) when a new conversation got a generated title."
+                "real LLM only: `suggestions` ({message_id, suggestions}) when there are "
+                "any, and `title` ({conversation_id, title}) when a new conversation got "
+                "a generated title."
             ),
         }
     },

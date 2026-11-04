@@ -70,6 +70,8 @@ const PAIRS: [string, string][] = [
   ["on-primary", "primary"],
   ["success", "success-soft"],
   ["warning", "warning-soft"],
+  // The body of a "not enough evidence" answer card (Message.tsx, AnswerGuidance.tsx).
+  ["text", "warning-soft"],
   ["warning", "surface-alt"],
   ["danger", "surface"],
   ["danger-text", "danger-soft"],

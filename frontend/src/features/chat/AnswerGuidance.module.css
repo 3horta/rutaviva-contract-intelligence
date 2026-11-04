@@ -1,0 +1,68 @@
+/* Same colour pairs as the rest of the answer card: text on the card (surface or,
+   for "not enough evidence", warning-soft) and the citation chips' primary on
+   surface. All of them are checked by styles/contrast.test.ts. */
+.guidance {
+  display: grid;
+  gap: 10px;
+}
+
+.block {
+  display: grid;
+  gap: 6px;
+}
+
+.reason {
+  margin: 0;
+  color: var(--rv-text);
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+.hint {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+  margin: 0;
+  color: var(--rv-text);
+  font-size: 0.86rem;
+}
+
+.hint svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.label {
+  margin: 0;
+  color: var(--rv-text);
+  font-size: 0.82rem;
+}
+
+.places {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.place {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--rv-primary-soft-border);
+  border-radius: 999px;
+  background: var(--rv-surface);
+  color: var(--rv-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.place:hover {
+  background: var(--rv-primary-soft);
+}

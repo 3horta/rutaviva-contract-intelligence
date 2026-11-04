@@ -8,6 +8,7 @@ import { Button } from "../../components/ui/Button";
 import { ErrorAlert, Spinner } from "../../components/ui/Feedback";
 import { copyText } from "../../lib/clipboard";
 import { AnswerDetailsView } from "./AnswerDetailsView";
+import { AnswerGuidance } from "./AnswerGuidance";
 import { Markdown } from "./Markdown";
 import { CONFIDENCE, INTERRUPTED_TEXT, PHASE_LABELS, PHASE_PROGRESS, warningLabel } from "./phases";
 import styles from "./Message.module.css";
@@ -104,6 +105,7 @@ export function AssistantMessage({ message, onRetry, locked }: AssistantMessageP
         </ul>
       )}
 
+      <AnswerGuidance message={message} />
       {message.citations.length > 0 && <Citations citations={message.citations} />}
       {message.details && <AnswerDetailsView details={message.details} />}
 

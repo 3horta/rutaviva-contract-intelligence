@@ -41,6 +41,10 @@ _THIRD_PARTY_LOGGERS = ("uvicorn", "uvicorn.error", "uvicorn.access", "celery")
 # Not copied to spans: one access line per request repeats what the server span says.
 _NOT_SPAN_EVENTS = ("uvicorn.access",)
 
+# HTTP clients log every request URL at INFO. A provider may carry its key in the URL,
+# and these lines would also become span events: keep them to warnings and errors.
+_QUIET_LOGGERS = ("httpx", "httpcore")
+
 
 def _extra_fields(record: logging.LogRecord) -> dict[str, Any]:
     """The fields passed in `extra={...}`."""
@@ -140,3 +144,6 @@ def configure_logging(level: str | int = "INFO") -> None:
         third_party = logging.getLogger(name)
         third_party.handlers.clear()
         third_party.propagate = True
+
+    for name in _QUIET_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)

@@ -308,3 +308,52 @@
   font-size: 0.82rem;
   font-style: italic;
 }
+
+.interruptedAnswer {
+  padding-block: 10px;
+}
+
+.suggestions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 760px;
+  margin-top: -4px;
+}
+
+.suggestionsTitle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  color: var(--rv-muted);
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.suggestionList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.suggestion {
+  max-width: 100%;
+  padding: 6px 12px;
+  border: 1px solid var(--rv-border);
+  border-radius: 999px;
+  background: var(--rv-surface);
+  color: var(--rv-text-soft);
+  font: inherit;
+  font-size: 0.8rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.suggestion:hover {
+  border-color: var(--rv-primary);
+  color: var(--rv-primary);
+}

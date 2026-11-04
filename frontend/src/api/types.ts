@@ -72,6 +72,11 @@ export type ConversationSummary = Schemas["ConversationSummary"];
 export type ConversationList = Schemas["ConversationList"];
 /** A stored message. Answer-only fields are null (or empty) on a question. */
 export type ConversationMessage = Schemas["MessageOut"];
+/**
+ * A stored answer's status. "interrupted": the answer was stopped before the
+ * server saved it, so only the question was kept (the content is empty).
+ */
+export type MessageStatus = NonNullable<ConversationMessage["status"]>;
 export type ConversationDetail = Schemas["ConversationOut"];
 
 export interface ConversationListQuery {
@@ -98,4 +103,16 @@ export interface ConversationStarted {
 export interface PhaseUpdate {
   phase: QueryPhase;
   label: string;
+}
+
+/** After `result` (real LLM only): follow-up questions for that answer, already stored. */
+export interface SuggestionsUpdate {
+  message_id: string;
+  suggestions: string[];
+}
+
+/** After `result` (real LLM only): a new conversation's generated title, already stored. */
+export interface TitleUpdate {
+  conversation_id: string;
+  title: string;
 }

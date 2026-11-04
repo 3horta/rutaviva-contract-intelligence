@@ -30,6 +30,8 @@ frontend/src/
 4. Components.
 
 Answers stream from `POST /query/stream`. `api/queryStream.ts` reads the Server-Sent Events with `fetch`, because `EventSource` cannot POST nor send headers. The UI never sees the SSE details.
+- The answer is shown on `result`. The stream may then send `suggestions` (chips under the last answer, also stored with it) and `title` (a new conversation's generated title, written into the header and the sidebar). That tail never blocks the next question: asking again drops it.
+- Stop aborts the fetch. The backend keeps the question as an `interrupted` turn, shown with an "Ask again" action (a retry when it is the last turn).
 
 **Run it** (in `frontend/`):
 
@@ -45,7 +47,8 @@ In mock mode the chat recognises a few test questions:
 - `outage` gives a 503 and `timeout` a 504;
 - a question about the weather gets "not enough evidence";
 - a question that spans several suppliers carries a warning;
-- a question that mentions `instructions` shows an excluded fragment.
+- a question that mentions `instructions` shows an excluded fragment;
+- every answered turn gets suggested follow-ups, and a new chat a generated title; Stop keeps the question as an interrupted turn.
 
 **Types from the API:**
 - `src/api/schema.d.ts` is generated from the committed `frontend/openapi.json`, and `src/api/types.ts` derives the app's names from it.
@@ -70,7 +73,7 @@ In mock mode the chat recognises a few test questions:
 - **CSP:** `script-src 'self'` and `style-src 'self'`, with no `unsafe-inline` and no `unsafe-eval`. The pre-paint theme script is a file, not inline.
 
 **Left out, and why:**
-- 👍/👎 feedback, suggested follow-ups, dictation and charts in answers: the backend does not support them.
+- 👍/👎 feedback, dictation and charts in answers: the backend does not support them.
 - Playwright end-to-end tests and error reporting (Sentry): out of scope for the test.
 - i18n: the UI is English only.
 

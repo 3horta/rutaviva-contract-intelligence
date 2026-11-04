@@ -446,7 +446,8 @@ export interface components {
         /**
          * MessageOut
          * @description A stored message. `status`, `confidence` and `details` are null for user messages
-         *     (and `citations` / `warnings` empty).
+         *     (and `citations` / `warnings` / `suggestions` empty). An `interrupted` answer has
+         *     empty `content`, null `confidence` and `details`.
          */
         MessageOut: {
             /**
@@ -462,7 +463,7 @@ export interface components {
             /** Content */
             content: string;
             /** Status */
-            status: ("answered" | "insufficient_evidence") | null;
+            status: ("answered" | "insufficient_evidence" | "interrupted") | null;
             /** Confidence */
             confidence: ("low" | "medium" | "high") | null;
             /** Citations */
@@ -470,6 +471,8 @@ export interface components {
             /** Warnings */
             warnings: string[];
             details: components["schemas"]["AnswerDetails"] | null;
+            /** Suggestions */
+            suggestions?: string[];
             /**
              * Created At
              * Format: date-time
@@ -862,7 +865,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Events: `conversation` (first), `phase` (0..n), then `result` (a QueryResponse) or `error` (Problem Details). */
+            /** @description Events: `conversation` (first), `phase` (0..n), then `result` (a QueryResponse) or `error` (Problem Details). After `result`, with a real LLM only: `suggestions` ({message_id, suggestions}) when there are any, and `title` ({conversation_id, title}) when a new conversation got a generated title. */
             200: {
                 headers: {
                     [name: string]: unknown;

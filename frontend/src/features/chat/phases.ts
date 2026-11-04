@@ -37,3 +37,6 @@ export const FOUND_BY_LABELS: Record<FoundBy, string> = {
   full_text: "Keyword",
   both: "Both",
 };
+
+/** A stored turn whose answer was stopped before the server saved it. */
+export const INTERRUPTED_TEXT = "Interrupted: the answer was stopped before it was saved.";

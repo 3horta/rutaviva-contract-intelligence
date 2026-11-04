@@ -57,15 +57,61 @@ describe("chat", () => {
     expect(screen.getByText("Excluded")).toBeInTheDocument();
   });
 
-  it("stops an answer and says so", async () => {
-    renderApp({ route: "/chat" });
+  it("stops an answer, keeps the question as interrupted and asks it again", async () => {
+    const { router } = renderApp({ route: "/chat" });
     setMockTimeScale(1); // real phase durations, so there is time to stop
-    await ask("What is the payment term in the fuel supply agreement?");
+    const question = "What is the payment term in the fuel supply agreement?";
+    await ask(question);
     fireEvent.click(await screen.findByRole("button", { name: "Stop the answer" }));
 
-    expect(await screen.findByText(/Answer stopped\. The server may still finish it/)).toBeInTheDocument();
+    expect(await screen.findByText(/Answer stopped\. The question is kept/)).toBeInTheDocument();
     expect(screen.queryByRole("progressbar")).not.toBeInTheDocument();
     expect(screen.getByLabelText(/^Question/)).toBeEnabled();
+
+    // Reloaded from the server: the stored turn, with its own note and action.
+    const interrupted = await screen.findByRole("article", { name: "Interrupted answer" }, { timeout: 4_000 });
+    expect(within(interrupted).getByText(/^Interrupted/)).toBeInTheDocument();
+    expect(router.state.location.pathname).toMatch(/^\/chat\/[0-9a-f-]+$/);
+    expect(answers()).toHaveLength(0); // not an answer
+
+    setMockTimeScale(0);
+    fireEvent.click(within(interrupted).getByRole("button", { name: "Ask again" }));
+    await screen.findByRole("region", { name: "Sources" });
+    // The retry replaced the interrupted turn.
+    expect(screen.queryByRole("article", { name: "Interrupted answer" })).not.toBeInTheDocument();
+    expect(answers()).toHaveLength(1);
+  }, 10_000);
+
+  it("suggests follow-ups under the last answer and asks one", async () => {
+    renderApp({ route: "/chat" });
+    await ask("What is the payment term in the fuel supply agreement?");
+    const suggested = await screen.findByRole("region", { name: "Suggested questions" });
+    const chips = within(suggested).getAllByRole("button");
+    expect(chips.length).toBeGreaterThan(0);
+    const next = chips[0]?.textContent ?? "";
+
+    fireEvent.click(chips[0] as HTMLElement);
+    await waitFor(() => expect(answers()).toHaveLength(2));
+    expect(screen.getAllByText(next).length).toBeGreaterThan(0); // asked as the next question
+    // Only one set of suggestions: under the last answer.
+    await screen.findByRole("region", { name: "Suggested questions" });
+    expect(screen.getAllByRole("region", { name: "Suggested questions" })).toHaveLength(1);
+  });
+
+  it("shows the generated title of a new conversation", async () => {
+    renderApp({ route: "/chat" });
+    await ask("What is the payment term in the fuel supply agreement?");
+    expect(await screen.findByRole("heading", { level: 1, name: "Payment term in the fuel supply agreement" })).toBeInTheDocument();
+    const history = screen.getByRole("navigation", { name: "Conversation history" });
+    expect(await within(history).findByText("Payment term in the fuel supply agreement")).toBeInTheDocument();
+  });
+
+  it("shows stored suggestions after opening a conversation", async () => {
+    renderApp({ route: "/chat" });
+    const history = await screen.findByRole("navigation", { name: "Conversation history" });
+    fireEvent.click(await within(history).findByText("How does the tire supply agreement renew?"));
+    const suggested = await screen.findByRole("region", { name: "Suggested questions" });
+    expect(within(suggested).getAllByRole("button").length).toBeGreaterThan(0);
   });
 
   it("offers Retry when the answer service times out (504)", async () => {

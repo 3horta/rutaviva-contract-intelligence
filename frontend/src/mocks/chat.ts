@@ -8,6 +8,10 @@
  * one with "outage" (503) or "timeout" (504) in it, which fail mid-stream,
  * a question about several suppliers (warning "sources_disagree") and one about
  * "instructions" (a flagged fragment, warning "prompt_injection").
+ *
+ * Like the backend with a real LLM, an answered turn is followed by suggested
+ * questions, and a new conversation by a generated title. Stop keeps the
+ * question as an interrupted turn.
  */
 import type {
   AnswerDetails,
@@ -195,6 +199,66 @@ function summary(conversation: MockConversation): ConversationSummary {
 const lastQuestion = (conversation: MockConversation) =>
   [...conversation.messages].reverse().find((m) => m.role === "user")?.content ?? null;
 
+const userMessage = (content: string, createdAt: string): ConversationMessage => ({
+  id: uuid(),
+  role: "user",
+  content,
+  status: null,
+  confidence: null,
+  citations: [],
+  warnings: [],
+  details: null,
+  suggestions: [],
+  created_at: createdAt,
+});
+
+/** The question of a stopped answer, kept with an empty answer, as the backend does. */
+function storeInterrupted(conversation: MockConversation, question: string): void {
+  const createdAt = new Date().toISOString();
+  conversation.messages.push(userMessage(question, createdAt), {
+    id: uuid(),
+    role: "assistant",
+    content: "",
+    status: "interrupted",
+    confidence: null,
+    citations: [],
+    warnings: [],
+    details: null,
+    suggestions: [],
+    created_at: createdAt,
+  });
+  conversation.updated_at = createdAt;
+}
+
+/** Follow-up topics the mock suggests, skipped when the question is already about them. */
+const SUGGESTION_TOPICS: { stem: string; question: (contract: string) => string }[] = [
+  { stem: "termin", question: (contract) => `How can the ${contract} be terminated?` },
+  { stem: "payme", question: (contract) => `What are the payment terms of the ${contract}?` },
+  { stem: "liabil", question: (contract) => `What liability limits apply in the ${contract}?` },
+  { stem: "renew", question: (contract) => `How does the ${contract} renew?` },
+];
+
+/** What the fast model would suggest: other topics of the first cited contract. */
+export function suggestionsFor(question: string, citations: Citation[]): string[] {
+  const first = citations[0];
+  if (!first) return [];
+  const contract = titleOf(first.document_filename);
+  const asked = question.toLowerCase();
+  return SUGGESTION_TOPICS.filter((topic) => !asked.includes(topic.stem))
+    .map((topic) => topic.question(contract))
+    .slice(0, 3);
+}
+
+/** What the fast model would title a conversation: the topic, without the question words. */
+function generatedTitle(question: string): string {
+  const topic = question
+    .trim()
+    .replace(/\?+$/, "")
+    .replace(/^(what|which|how|who|when|where|is|are|can|does|do)\b( (is|are|does|do|must|can|the))*\s*/i, "");
+  const title = topic.charAt(0).toUpperCase() + topic.slice(1);
+  return title.length > 60 ? `${title.slice(0, 57).trimEnd()}…` : title;
+}
+
 /** Appends a question and its answer, as the backend stores a finished turn. */
 function storeTurn(
   conversation: MockConversation,
@@ -205,20 +269,14 @@ function storeTurn(
   const createdAt = new Date(at).toISOString();
   const messageId = uuid();
   const { answer: content, ...fields } = result;
-  conversation.messages.push(
-    {
-      id: uuid(),
-      role: "user",
-      content: question,
-      status: null,
-      confidence: null,
-      citations: [],
-      warnings: [],
-      details: null,
-      created_at: createdAt,
-    },
-    { id: messageId, role: "assistant", content, created_at: createdAt, ...fields },
-  );
+  conversation.messages.push(userMessage(question, createdAt), {
+    id: messageId,
+    role: "assistant",
+    content,
+    created_at: createdAt,
+    suggestions: [],
+    ...fields,
+  });
   conversation.updated_at = createdAt;
   return { conversation_id: conversation.id, message_id: messageId, ...result };
 }
@@ -263,6 +321,9 @@ export function seedConversations(docs: Searchable[], now: number): MockConversa
     questions.forEach((question, index) =>
       storeTurn(conversation, question, answer(question, docs, lastQuestion(conversation)), at + index * 60_000),
     );
+    // Stored suggestions, as a reload shows them under the last answer.
+    const last = conversation.messages.at(-1);
+    if (last?.status === "answered") last.suggestions = suggestionsFor(questions.at(-1) ?? "", last.citations);
     return conversation;
   });
 }
@@ -326,12 +387,15 @@ const PHASE_MS: Record<QueryPhase, number> = {
 
 /**
  * The answer as an SSE body: conversation, phases, then the result or an
- * error. Like the real backend, a client that disconnects (Stop) does not
- * stop the work: the turn is still stored when the answer completes.
+ * error, then suggestions (answered turns) and a title (new conversations).
+ * Like the real backend, a client that disconnects (Stop) before the result
+ * leaves its question stored as an interrupted turn, and the answer is dropped.
  */
 export function streamAnswer({ question, conversation, retry, docs, signal, onStored }: StreamInput): Response {
   const encoder = new TextEncoder();
   let detached = false;
+  let finished = false; // stored, or failed: a disconnect changes nothing
+  const isNew = conversation.messages.length === 0;
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {
       const send = (text: string) => {
@@ -344,6 +408,11 @@ export function streamAnswer({ question, conversation, retry, docs, signal, onSt
         if (detached) return;
         detached = true;
         controller.error(new DOMException("Aborted", "AbortError"));
+        // A stopped retry keeps the turn it was replacing.
+        if (!finished && !retry) {
+          storeInterrupted(conversation, question);
+          onStored();
+        }
       });
 
       // A retry answers again as if the last turn had not happened.
@@ -356,11 +425,14 @@ export function streamAnswer({ question, conversation, retry, docs, signal, onSt
       for (const phase of phases) {
         send(block("phase", { phase, label: PHASE_LABELS[phase] }));
         await wait(PHASE_MS[phase]);
+        if (detached) return; // stopped: the interrupted turn is already stored
         if (phase === "searching" && /\boutage\b/i.test(question)) {
+          finished = true;
           send(block("error", problemBody(503, "Service unavailable", "The language model is not available. Try again in a moment.")));
           return close();
         }
         if (phase === "drafting" && /\btimeout\b/i.test(question)) {
+          finished = true;
           send(block("error", problemBody(504, "Gateway timeout", "The language model took too long to answer. Try again.")));
           return close();
         }
@@ -368,6 +440,7 @@ export function streamAnswer({ question, conversation, retry, docs, signal, onSt
 
       if (retry) conversation.messages.splice(-2, 2);
       const result = storeTurn(conversation, question, answer(question, docs, previous), Date.now());
+      finished = true;
       onStored();
       // Sent in two pieces, cut mid-event, as a network may deliver it.
       const text = block("result", result);
@@ -375,6 +448,25 @@ export function streamAnswer({ question, conversation, retry, docs, signal, onSt
       send(text.slice(0, cut));
       await wait(60);
       send(text.slice(cut));
+
+      // After the result, stored first (a disconnect does not undo them).
+      if (result.status === "answered" && result.message_id) {
+        await wait(500);
+        const suggestions = suggestionsFor(question, result.citations);
+        const stored = conversation.messages.find((m) => m.id === result.message_id);
+        if (stored && suggestions.length) {
+          stored.suggestions = suggestions;
+          send(block("suggestions", { message_id: result.message_id, suggestions }));
+        }
+      }
+      if (isNew) {
+        await wait(300);
+        const title = generatedTitle(question);
+        if (title && conversation.title === titleFor(question)) {
+          conversation.title = title;
+          send(block("title", { conversation_id: conversation.id, title }));
+        }
+      }
       close();
     },
   });

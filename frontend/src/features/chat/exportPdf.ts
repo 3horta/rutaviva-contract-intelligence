@@ -1,7 +1,7 @@
 import type { jsPDF } from "jspdf";
 import type { ConversationMessage } from "../../api/types";
 import { parseMarkdown, plainText } from "../../lib/markdown";
-import { CONFIDENCE, warningLabel } from "./phases";
+import { CONFIDENCE, INTERRUPTED_TEXT, warningLabel } from "./phases";
 
 const MARGIN = 56;
 const LINE_HEIGHT = 1.4;
@@ -70,6 +70,10 @@ class PdfWriter {
 }
 
 function writeAnswer(writer: PdfWriter, message: ConversationMessage) {
+  if (message.status === "interrupted") {
+    writer.text(INTERRUPTED_TEXT, { size: 9, muted: true });
+    return;
+  }
   if (message.status === "insufficient_evidence") {
     writer.text("Not enough evidence", { size: 9, bold: true, muted: true });
   }

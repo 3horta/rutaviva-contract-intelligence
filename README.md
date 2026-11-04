@@ -70,7 +70,7 @@ In mock mode the chat recognises a few test questions:
 - Unit tests cover the SSE parser, the Markdown parser, table URL state, upload queue, grouping and token contrast (WCAG AA in both themes).
 - `src/test/` renders the whole app over the mock API: sign-in, 401, tenant isolation, upload, the chat's states and accessibility.
 
-**Key decisions** (details in `DECISIONS.md`, ADR-F01 to ADR-F08):
+**Key decisions** (details in `DECISIONS.md`, ADR-F01 to ADR-F09):
 - **State in the URL:** table page, sort, search and filter, and the open conversation (`/chat/:id`). Back and shared links restore them.
 - **Conditional polling:** lists and details poll only while a document is still pending or processing.
 - **Tenant isolation:**

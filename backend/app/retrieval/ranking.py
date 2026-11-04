@@ -35,17 +35,23 @@ def _jaccard(a: frozenset[str], b: frozenset[str]) -> float:
     return len(a & b) / len(a | b)
 
 
+def _order_key(chunk: "RetrievedChunk") -> float:
+    """The cross-encoder score when the candidates were reranked (all or none of them
+    have one), the fused RRF score otherwise."""
+    return chunk.rerank_score if chunk.rerank_score is not None else chunk.score
+
+
 def select_chunks(
     candidates: Sequence["RetrievedChunk"], *, k: int, max_per_document: int
 ) -> list["RetrievedChunk"]:
-    """Walk the candidates best first and keep up to `k`, skipping near-duplicates of a
-    chunk already kept from the same document, and chunks of a document that already
-    has `max_per_document`."""
+    """Walk the candidates best first (the reranked order, if any) and keep up to `k`,
+    skipping near-duplicates of a chunk already kept from the same document, and chunks
+    of a document that already has `max_per_document`."""
     kept: list[RetrievedChunk] = []
     kept_words: dict[uuid.UUID, list[frozenset[str]]] = {}  # per document
     per_document: dict[uuid.UUID, int] = {}
 
-    for chunk in sorted(candidates, key=lambda c: c.score, reverse=True):
+    for chunk in sorted(candidates, key=_order_key, reverse=True):
         if len(kept) == k:
             break
         if per_document.get(chunk.document_id, 0) >= max_per_document:

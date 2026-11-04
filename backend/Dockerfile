@@ -39,6 +39,12 @@ RUN python -c "\
 from huggingface_hub import snapshot_download; \
 snapshot_download('BAAI/bge-base-en-v1.5', \
     ignore_patterns=['*.bin', 'onnx/*', 'openvino/*', '*.h5', '*.ot', '*.msgpack'])"
+# The reranker (RERANKER=cross_encoder): cross-encoder/ms-marco-MiniLM-L-6-v2, ~90 MB of
+# safetensors weights. Its own layer, so changing it does not download BGE again.
+RUN python -c "\
+from huggingface_hub import snapshot_download; \
+snapshot_download('cross-encoder/ms-marco-MiniLM-L-6-v2', \
+    ignore_patterns=['*.bin', 'onnx/*', 'openvino/*', '*.h5', '*.ot', '*.msgpack'])"
 
 # --- Docling models (optional) ---------------------------------------------------------------
 # Only needed with TEXT_EXTRACTOR=docling. OCR is disabled in the pipeline, so only the

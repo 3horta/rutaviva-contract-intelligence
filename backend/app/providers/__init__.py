@@ -50,12 +50,21 @@ def _local_embeddings(model_name: str, dim: int, batch_size: int) -> EmbeddingsP
 logger = logging.getLogger(__name__)
 
 
-def warm_up(settings: Settings) -> None:
-    """Load the local embedding model and run one inference at process start, so the
-    first user request does not pay for it (seconds to minutes on a small CPU). Other
-    providers have nothing to load."""
-    if settings.embeddings_provider != "local":
-        return
+def warm_up(settings: Settings, *, reranker: bool = False) -> None:
+    """Load the local models and run one inference at process start, so the first user
+    request does not pay for it (seconds to minutes on a small CPU): the embedding model
+    (API and worker) and, with `reranker=True` (API only: the worker never reranks), the
+    cross-encoder. Other providers have nothing to load."""
     started = time.perf_counter()
-    get_embeddings(settings).embed_query("warm up")
-    logger.info("models.warmed", extra={"ms": round((time.perf_counter() - started) * 1000)})
+    loaded = False
+    if settings.embeddings_provider == "local":
+        get_embeddings(settings).embed_query("warm up")
+        loaded = True
+    if reranker and settings.reranker == "cross_encoder":
+        # Imported here: the retrieval package imports the providers' settings.
+        from app.retrieval.rerank import get_reranker
+
+        get_reranker(settings)
+        loaded = True
+    if loaded:
+        logger.info("models.warmed", extra={"ms": round((time.perf_counter() - started) * 1000)})

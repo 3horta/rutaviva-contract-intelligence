@@ -35,6 +35,7 @@ from app.core.tracing import (
 )
 from app.db.models import FTS_CONFIG, DocumentStatus
 from app.retrieval.ranking import select_chunks
+from app.retrieval.rerank import Reranker, get_reranker
 from app.retrieval.tsquery import build_or_tsquery
 
 
@@ -52,6 +53,8 @@ class RetrievedChunk:
     # Where the document's ingestion was traced, for span links from the query trace.
     ingest_trace_id: str | None = None
     ingest_span_id: str | None = None
+    # Cross-encoder score (app/retrieval/rerank.py); None when the RRF order was kept.
+    rerank_score: float | None = None
 
     @property
     def found_by_both(self) -> bool:
@@ -126,12 +129,14 @@ def search(
     question: str,
     embedding_model: str,
     settings: Settings,
+    reranker: Reranker | None = None,
 ) -> list[RetrievedChunk]:
     """Hybrid top-k chunks of the tenant for the question, best first.
 
     The SQL returns every fused candidate (at most 2 x `retrieval_candidates`, so it
-    stays small); `select_chunks` then drops near-duplicates, caps chunks per document
-    and keeps the top `retrieval_k`. There is no score threshold: deciding that the
+    stays small); the reranker (`RERANKER`, or `reranker` to override it) reorders them;
+    `select_chunks` then drops near-duplicates, caps chunks per document and keeps the
+    top `retrieval_k` of that order. There is no score threshold: deciding that the
     evidence is not enough is the job of the answer step (see `generation/service.py`).
     """
     rows = session.execute(
@@ -164,6 +169,7 @@ def search(
         )
         for row in rows
     ]
+    candidates = (reranker or get_reranker(settings)).rerank(question, candidates)
     results = select_chunks(
         candidates, k=settings.retrieval_k, max_per_document=settings.max_chunks_per_document
     )

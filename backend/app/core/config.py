@@ -34,6 +34,9 @@ LLMProvider = Literal["fake", "litellm"]
 # embedder used by the tests; gemini: optional paid API.
 EmbeddingsProvider = Literal["local", "fake", "gemini"]
 FakeLLMMode = Literal["ok", "invalid", "invalid_once", "timeout", "empty"]
+# cross_encoder: rerank the fused candidates with a local cross-encoder; none: keep the
+# RRF order (tests, and a switch to turn it off).
+RerankerKind = Literal["cross_encoder", "none"]
 
 FAKE_EMBEDDING_MODEL = "fake-hash-v1"
 
@@ -122,6 +125,11 @@ class Settings(BaseSettings):
     rrf_weight_vector: float = Field(default=0.6, ge=0)
     rrf_weight_fts: float = Field(default=0.4, ge=0)
     max_chunks_per_document: int = Field(default=3, gt=0)
+
+    # Reranking of the fused candidates before the top `retrieval_k` are kept
+    # (app/retrieval/rerank.py). The model is baked into the image, like the embeddings.
+    reranker: RerankerKind = "cross_encoder"
+    reranker_model: str = "cross-encoder/ms-marco-MiniLM-L-6-v2"
 
     # Observability. No endpoint means spans are created but not exported.
     otel_exporter_otlp_endpoint: str | None = None

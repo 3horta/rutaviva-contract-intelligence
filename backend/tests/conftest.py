@@ -19,6 +19,8 @@ def isolated_env(monkeypatch: pytest.MonkeyPatch) -> None:
     # Read outside Settings (app/api/demo_auth.py); unset means the default (on).
     monkeypatch.delenv("DEMO_LOGIN", raising=False)
     monkeypatch.setenv("EMBEDDINGS_PROVIDER", "fake")
+    # Likewise no cross-encoder: its adapter has a contract test (test_cross_encoder.py).
+    monkeypatch.setenv("RERANKER", "none")
     # The API refuses to start without a JWT signing key; tests use a throwaway one.
     monkeypatch.setenv("JWT_SECRET", "test-only-signing-key-0123456789abcdef")
     get_settings.cache_clear()

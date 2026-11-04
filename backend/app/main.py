@@ -38,8 +38,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        # Load the embedding model before serving (in a thread: it is CPU-bound).
-        await run_in_threadpool(warm_up, settings)
+        # Load the embedding model and the reranker before serving (in a thread: it is
+        # CPU-bound).
+        await run_in_threadpool(warm_up, settings, reranker=True)
         yield
 
     app = FastAPI(title="Rutaviva Contract Intelligence", version="0.1.0", lifespan=lifespan)

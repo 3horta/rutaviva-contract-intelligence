@@ -8,12 +8,15 @@ are collected at the end once the related milestones are done.
 | # | Decision | Status |
 |---|---|---|
 | [ADR-001](#adr-001--no-paid-keys-by-default-fail-fast-configuration) | No paid keys by default, fail-fast configuration | Accepted |
-| [ADR-007](#adr-007--embeddings-a-real-local-model-at-runtime-a-simulated-one-in-tests) | Embeddings: a real local model at runtime, a simulated one in tests | Accepted |
 | [ADR-002](#adr-002--tenant-isolation-column-filter-plus-forced-rls) | Tenant isolation: column filter plus forced RLS | Accepted |
 | [ADR-003](#adr-003--duplicates-the-same-pdf-is-never-live-twice-in-a-tenant) | Duplicates: the same PDF is never live twice in a tenant | Accepted |
-| [ADR-004](#adr-004--no-document-is-left-stuck-in-processing) | No document is left stuck in `processing` | Accepted (schema done; task logic in progress) |
+| [ADR-004](#adr-004--no-document-is-left-stuck-in-processing) | No document is left stuck in `processing` | Accepted |
 | [ADR-005](#adr-005--closed-set-of-failure-codes) | Closed set of failure codes | Accepted |
 | [ADR-006](#adr-006--ci-fails-instead-of-skipping-the-database-tests) | CI fails instead of skipping the database tests | Accepted |
+| [ADR-007](#adr-007--embeddings-a-real-local-model-at-runtime-a-simulated-one-in-tests) | Embeddings: a real local model at runtime, a simulated one in tests | Accepted |
+| [ADR-008](#adr-008--text-extraction-pdfplumber-by-default-docling-optional) | Text extraction: pdfplumber by default, Docling optional | Accepted |
+| [ADR-009](#adr-009--cpu-inference-load-models-once-bound-the-threads) | CPU inference: load models once, bound the threads | Accepted |
+| [ADR-010](#adr-010--chat-backend-streamed-phases-persisted-turns-resolved-follow-ups) | Chat backend: streamed phases, persisted turns, resolved follow-ups | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
@@ -117,6 +120,54 @@ are collected at the end once the related milestones are done.
   - `tests/contract/test_fake_embeddings.py`: dimension, unit norm, similarity and determinism across processes with different hash seeds.
   - `tests/contract/test_local_embeddings.py`, run in CI with `REQUIRE_ML=1`: dimension, norm, same vector twice, and a paraphrase that beats unrelated text.
   - Retrieval quality with the real model: the verification question set (`make eval`).
+
+## ADR-008 · Text extraction: pdfplumber by default, Docling optional
+
+- **Context:** the brief suggests Docling, and it was the first choice (layout model, reading order, table structure, element coordinates). Measured on the target machine (Docker with 4 CPUs and 4 GB), with the model loaded once and the table-structure stage off, it still took **~70 s per page**: a 4-page sample contract needed 292 s just to convert, beyond the 240 s task soft limit.
+- **Decision:**
+  - `TEXT_EXTRACTOR=pdfplumber` is the default. It reads the PDF text layer with coordinates: **~1 s for a 3-page contract**, no models, on every platform.
+  - Lines in the top/bottom page margins (running headers and footers) are dropped.
+  - Blocks split at paragraph gaps, numbered clauses and headings (short all-caps lines or SECTION/ARTICLE/EXHIBIT…), which chunking uses as the section name.
+  - `TEXT_EXTRACTOR=docling` keeps Docling, models baked into the image, OCR off.
+- **Rejected:**
+  - **Docling by default with higher time limits:** minutes per document for whoever runs the demo.
+  - **Raising the default limits for everyone:** hides the cost instead of choosing.
+- **Consequences:**
+  - Contracts with complex layouts (multi-column, real tables) are extracted in text order without table structure, a known limit.
+  - Scans still end `empty_pdf`, because there is no OCR.
+  - pypdfium2 (a pdfplumber dependency) is pinned to the newest release with a macOS 12 Intel wheel.
+- **Verified by:** `tests/unit/test_pdfplumber_extract.py`: page counts of every sample, a known clause on its page with a top-left box, headers and footers dropped, headings detected, corrupt → `corrupt_pdf`, scan → `empty_pdf`. These run on any machine. The Docling tests run in Linux/CI (`REQUIRE_DOCLING=1`).
+
+## ADR-009 · CPU inference: load models once, bound the threads
+
+- **Context:** the first end-to-end runs on the target machine were slow, and part of it was avoidable:
+  - two concurrent first requests both loaded the embedding model;
+  - the worker built a new Docling extractor for every task, reloading the layout model for every PDF;
+  - PyTorch uses every core in every process by default, so the API and the worker fought for the same 4 CPUs.
+- **Decision:**
+  - The embedding model is created under a lock, once per process.
+  - The extractor is cached per worker process.
+  - `OMP_NUM_THREADS`/`MKL_NUM_THREADS` = 2 for the API and 2 for the worker (`API_TORCH_THREADS`, `WORKER_TORCH_THREADS`).
+  - Worker concurrency is 1 (`WORKER_CONCURRENCY`): CPU-bound tasks in parallel only slow each other down.
+- **Rejected:** more worker processes, which oversubscribe the CPU.
+- **Known limit:** the keyless "LLM" ranks the sentences of the retrieved chunks with the embedding model at query time, so answers take seconds to tens of seconds on a small CPU. Embedding sentences at indexing time is the next step if it matters.
+
+## ADR-010 · Chat backend: streamed phases, persisted turns, resolved follow-ups
+
+- **Context:** the chat needs streaming, a history per conversation and follow-up questions ("and the cap?") that only make sense with the previous turn. No answer text may be shown before it is validated.
+- **Decision:**
+  - **Stream:** `POST /query/stream` (SSE) sends `conversation`, then `phase` events (`contextualizing` when there is history, then `searching`, `drafting`, `validating`), then a single validated `result`, or an `error` with the Problem Details shape. Auth, validation and a foreign `conversation_id` fail before the stream starts, with normal HTTP status codes.
+  - **Persistence:** the question and the answer are saved together, atomically, after a valid answer (answered or insufficient evidence). Provider failures save nothing. `retry` replaces the last turn in the same transaction, and a row lock keeps sequence numbers consecutive under concurrency.
+  - **Follow-ups:** before retrieval, a question resolver rewrites the question as standalone using the last 3 turns.
+    - With a real LLM, an LLM-based resolver. Earlier turns are delimited as data, and any failure leaves the question unchanged, so a conversation never makes a query fail.
+    - In keyless mode, a deterministic rule: a question with ≤ 2 content words, or starting with a connector or pronoun, is searched together with the previous standalone question.
+    - The interpreted question is stored and shown in "How it was answered".
+  - **`details`** of each answer: the retrieved chunks (file, page, score, branch that found them), hits per branch, attempts, model, latency and `trace_id`. Never document content.
+- **Rejected:**
+  - Streaming LLM tokens, which would show unvalidated text.
+  - Answering follow-ups without context: "and the cap?" alone retrieves noise.
+  - A separate query-log table: the assistant message carries the metadata, and the trace has the detail.
+- **Verified by:** `tests/integration/test_conversations_api.py`: event order, error event with nothing persisted, errors before the stream, persistence, retry, follow-up retrieval, and 404 for another tenant's conversation everywhere. Also `tests/unit/test_resolver.py`.
 
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 

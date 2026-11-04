@@ -154,7 +154,7 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 - Prompt injection in documents is detected at ingestion; flagged chunks are excluded and the answer warns. Disagreeing sources cap the confidence.
 - MCP server at `/mcp` for AI agents: four read-only tools (search, read in context, list, ask) and a review prompt, with the same JWT and tenant isolation as the API.
 - Chat over SSE with live phases, persisted conversations (search, rename, delete) and follow-up questions; with a real LLM, generated conversation titles and suggested follow-ups; a stopped answer keeps its question to ask again.
-- Feedback on answers: 👍/👎 with an optional comment, stored per answer under the same tenant isolation (ADR-019).
+- Feedback on answers: 👍/👎 with an optional comment, one per answer and browser (an anonymous rater id, not a login), with the team's totals, under the same tenant isolation (ADR-019).
 - React app: upload with status, document table with state in the URL, PDF viewer with the cited passage highlighted, chat with citations and export, dark mode, accessibility tests.
 - OpenTelemetry: one trace from the upload's HTTP request through the Celery task; queries traced with the LLM's latency and tokens, linked to the ingestion traces; JSON logs with `trace_id`.
 - Docker Compose for everything, environment-based configuration, reproducible migrations, and CI.

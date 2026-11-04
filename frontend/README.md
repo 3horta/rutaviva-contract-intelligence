@@ -70,6 +70,7 @@ In mock mode the chat recognises a few test questions:
   - Another tenant's document is a "not found".
 - **Mocks at the fetch level:** the real client, error handling and queries run unchanged in the demo and in the tests.
 - **Markdown without `innerHTML`:** answers are parsed into data and drawn as React elements. `dangerouslySetInnerHTML` is banned by lint.
+- **Answer feedback (ADR-019):** 👍/👎 and an optional comment under each answer, with the team's totals. Each browser rates as an anonymous rater: a random UUID kept in `localStorage` (in memory if storage is blocked) and sent as `X-Rater-Id`. It tells browsers apart; it is not a login.
 - **CSP:** `script-src 'self'` and `style-src 'self'`, with no `unsafe-inline` and no `unsafe-eval`. The pre-paint theme script is a file, not inline.
 
 **Left out, and why:**

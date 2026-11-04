@@ -47,8 +47,35 @@ On start, the one-shot `migrate` service generates the JWT signing key into a Do
    - operation `POST /documents`: one trace crosses the API and the worker (extract, chunk, embed, store);
    - operation `POST /query/stream`: retrieval, the LLM call with its latency and tokens, and a link to the ingestion trace of each document used.
    - Every log line carries the same `trace_id` (`docker compose logs worker`).
+   - How the traces are laid out, and why a question is a separate trace: [Observability](#observability).
 
 More questions, with the expected answers and pages, are in [`sample_data/questions.yaml`](sample_data/questions.yaml).
+
+## Observability
+
+```
+api / worker  ──OTLP──►  otel-collector  ──OTLP──►  jaeger (UI on :16686)
+```
+
+The collector receives the spans and forwards them; Jaeger (all-in-one, in-memory storage) stores and shows them.
+
+**Services in Jaeger.** Each process exports under its own name: `rutaviva-api`, `rutaviva-worker` and `rutaviva-migrate` (the migrations at start-up). The service picker is only a search filter. A trace is not split by service: the upload trace below holds spans from the API *and* the worker, so searching `rutaviva-api` or `rutaviva-worker` finds the same trace.
+
+**One trace per upload: HTTP request → Celery task → SQL.** `POST /documents` stores the file and enqueues the task; the Celery instrumentation puts the trace context in the message, so the worker's spans (extract, chunk, embed, store) continue the same trace. Every SQL statement, in the API and in the worker, is a child span of whatever step ran it.
+
+**One trace per question, linked to the uploads.** `POST /query/stream` has its own trace: query embedding, hybrid retrieval, relevance judge (real LLM only), `llm.generate` and the validated answer. A question is not caused by an upload, and it can come days later, so it is not forced into the upload's trace. Instead, its `query.answer` span carries a **span link** to the ingestion trace of each document it used: in Jaeger, one click goes from an answer to how its sources were indexed.
+
+**Attributes** (ids, counts and timings only, never document content or prompts):
+
+| Attribute | Where |
+|---|---|
+| `tenant.id` | every authenticated request |
+| `document.id`, `document.pages`, `chunks.count` | upload and ingestion |
+| `retrieval.vec_hits`, `retrieval.fts_hits`, `retrieval.results` | retrieval |
+| `gen_ai.request.model`, `llm.latency_ms`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `llm.tokens.estimated` | `llm.generate` |
+| `answer.confidence`, `answer.citations`, `prompt_injection.flagged` | the answer |
+
+**Logs.** JSON, one event per line, with the current `trace_id` and `span_id`, the same ids as in Jaeger. API errors (`application/problem+json`) and the chat's "How it was answered" panel show the `trace_id` too, so `docker compose logs api worker | grep <trace_id>` gives every log line of a request. The same lines are also in Jaeger: each one logged inside a span is added to that span as an event (open a span → "Logs"). Jaeger stores no logs of its own; stdout stays the full log.
 
 ## Keyless mode and a real LLM
 

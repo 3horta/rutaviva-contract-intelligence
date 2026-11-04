@@ -471,6 +471,8 @@ Each case gets a different response:
   - The question's `query.answer` span **links** to the ingestion trace of each document it used. They are separate traces because a question is not caused by an upload, but one click leads from one to the other.
   - **Attributes:** tenant, document id, pages, chunk count, embedding model and batch size, task attempt and failure code, retrieval counts, LLM model, `llm.latency_ms`, `gen_ai.usage.input_tokens` / `output_tokens`, `llm.tokens.estimated` (true when the provider reports no usage), retries, validation errors, confidence, citation count, insufficient evidence, flagged-injection count.
 - **Logs:** JSON, one event per line, with `trace_id` and `span_id`. The two are joined by the trace id (shown in the chat's "How it was answered").
+  - Each line logged inside a span is also added to it as a **span event** (same name and fields, minus the exception text), so Jaeger shows the logs of a request inside its trace. The uvicorn access line is not copied: the server span already says the same.
+  - Rejected: a log backend (Loki + Grafana). Jaeger does not store logs, and two more containers go against a "simple" tracing backend; stdout plus the span events cover the demo.
 - **Stored with the data** (queryable without a tracing backend):
   - per document: processing time, embedding calls and tokens;
   - per answer: latency, tokens in and out, model, attempts, and the retrieved chunks with their scores.

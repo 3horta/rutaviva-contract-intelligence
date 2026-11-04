@@ -10,8 +10,10 @@ the time.
 
 How lines become blocks (simple, explainable rules):
 - Lines come with coordinates in PDF points, origin top-left (our convention).
-- Lines in the top/bottom margin are dropped: running headers and footers ("Confidential",
-  "Page 2 of 3") repeat on every page and only add noise to search.
+- Running headers and footers are dropped: a line in the top/bottom margin whose text
+  (digits ignored) repeats in the margin of another page, or that is just a page number
+  ("Page 2 of 3", "- 4 -"). Margin lines that do not repeat are kept: a real clause can
+  be printed near the bottom of a page.
 - A new block starts at a vertical gap larger than ~0.8 of a line, at a numbered clause
   ("2.3 Late delivery…") and at a heading. A heading is a short line that is all caps or
   starts with SECTION/ARTICLE/EXHIBIT/SCHEDULE/ANNEX; chunking uses it as the section name.
@@ -31,6 +33,7 @@ PARAGRAPH_GAP = 0.8
 MAX_HEADING_CHARS = 90
 
 _CLAUSE = re.compile(r"^\d+(\.\d+)*\.?\s+\S")
+_PAGE_NUMBER = re.compile(r"^[-\s]*(page\s*)?\d+(\s*(of|/)\s*\d+)?[-\s]*$", re.IGNORECASE)
 _HEADING_WORD = re.compile(r"^(SECTION|ARTICLE|EXHIBIT|SCHEDULE|ANNEX|APPENDIX)\b", re.IGNORECASE)
 
 
@@ -42,10 +45,21 @@ class PdfPlumberExtractor:
 
         try:
             with pdfplumber.open(BytesIO(pdf)) as document:
-                pages = [_page(page, number) for number, page in enumerate(document.pages, 1)]
+                raw = [_raw_page(page) for page in document.pages]
         except Exception as exc:
             # Only the exception type: its message could quote the file.
             raise CorruptPDFError(f"the PDF could not be parsed ({type(exc).__name__})") from exc
+
+        running = _running_lines(raw)
+        pages = [
+            PageText(
+                number=number,
+                width=width,
+                height=height,
+                blocks=_blocks([line for line in lines if not _is_running(line, running)]),
+            )
+            for number, (width, height, lines) in enumerate(raw, 1)
+        ]
 
         extracted = ExtractedDocument(pages=pages)
         if extracted.page_count == 0:
@@ -55,15 +69,38 @@ class PdfPlumberExtractor:
         return extracted
 
 
-def _page(page: Any, number: int) -> PageText:
+def _raw_page(page: Any) -> tuple[float, float, list[dict[str, Any]]]:
+    """Page size and its text lines, each tagged with whether it sits in a margin."""
     width, height = float(page.width), float(page.height)
     margin = height * MARGIN_FRACTION
-    lines = [
-        line
-        for line in page.extract_text_lines()
-        if line["text"].strip() and line["top"] >= margin and line["bottom"] <= height - margin
-    ]
-    return PageText(number=number, width=width, height=height, blocks=_blocks(lines))
+    lines = []
+    for line in page.extract_text_lines():
+        if not line["text"].strip():
+            continue
+        line["in_margin"] = line["top"] < margin or line["bottom"] > height - margin
+        lines.append(line)
+    return width, height, lines
+
+
+def _margin_key(text: str) -> str:
+    """Margin text with digits masked: "Page 2 of 3" and "Page 3 of 3" are one line."""
+    return re.sub(r"\d+", "#", " ".join(text.split()).casefold())
+
+
+def _running_lines(raw: list[tuple[float, float, list[dict[str, Any]]]]) -> set[str]:
+    """Margin texts that appear on at least two pages: running headers and footers."""
+    pages_with: dict[str, int] = {}
+    for _width, _height, lines in raw:
+        for key in {_margin_key(line["text"]) for line in lines if line["in_margin"]}:
+            pages_with[key] = pages_with.get(key, 0) + 1
+    return {key for key, count in pages_with.items() if count >= 2}
+
+
+def _is_running(line: dict[str, Any], running: set[str]) -> bool:
+    if not line["in_margin"]:
+        return False
+    text = line["text"].strip()
+    return _margin_key(text) in running or _PAGE_NUMBER.match(text) is not None
 
 
 def is_heading(text: str) -> bool:

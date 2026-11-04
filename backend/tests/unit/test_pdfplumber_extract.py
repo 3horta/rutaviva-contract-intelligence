@@ -81,3 +81,32 @@ def test_scanned_pdf_without_text_raises_empty() -> None:
 )
 def test_heading_rule(text: str, expected: bool) -> None:
     assert is_heading(text) is expected
+
+
+def test_page_number_rule() -> None:
+    from app.ingestion.pdfplumber_extract import _PAGE_NUMBER
+
+    for text in ["Page 2 of 3", "page 4", "- 7 -", "12", "3/9"]:
+        assert _PAGE_NUMBER.match(text)
+    assert not _PAGE_NUMBER.match("4.2 Rutaviva may terminate with 30 days' notice.")
+
+
+def test_a_non_repeated_line_in_the_margin_is_kept() -> None:
+    from app.ingestion.pdfplumber_extract import _is_running, _running_lines
+
+    def line(text: str, in_margin: bool = True) -> dict:
+        return {"text": text, "in_margin": in_margin}
+
+    raw = [
+        (612.0, 792.0, [line("ACME Confidential"), line("Page 1 of 2")]),
+        (
+            612.0,
+            792.0,
+            [line("ACME Confidential"), line("9.4 Tires older than 6 years are rejected.")],
+        ),
+    ]
+    running = _running_lines(raw)
+    assert _is_running(line("ACME Confidential"), running)  # repeats: header
+    assert _is_running(line("Page 1 of 2"), running)  # a page number
+    assert not _is_running(line("9.4 Tires older than 6 years are rejected."), running)
+    assert not _is_running(line("ACME Confidential", in_margin=False), running)  # in the body

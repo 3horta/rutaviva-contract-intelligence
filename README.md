@@ -82,7 +82,7 @@ The collector receives the spans and forwards them; Jaeger (all-in-one, in-memor
 | Setting | Default (no key) | Real provider |
 |---|---|---|
 | `LLM_PROVIDER` | `fake`: an extractive LLM that answers with the contract's own sentences, ranked with the embedding model, behind a calibrated "not enough information" rule | `litellm`, with `LLM_MODEL=gemini/gemini-3.5-flash` and `GEMINI_API_KEY` |
-| `EMBEDDINGS_PROVIDER` | `local`: BGE base (768 dimensions) on the CPU, inside the image | `gemini` (re-upload the documents after switching) |
+| `EMBEDDINGS_PROVIDER` | `local`: BGE base (768 dimensions) on the CPU, inside the image | `gemini`, together with `LLM_PROVIDER=litellm`. Start from an empty database (`docker compose down -v`): documents indexed with another model are not searched, and uploading the same PDF again returns the existing document (there is no reindex job) |
 | `TEXT_EXTRACTOR` | `pdfplumber` | `docling` (build with `WITH_DOCLING_MODELS=true`; minutes per PDF on a CPU) |
 
 To use a real LLM, copy `.env.example` to `.env`, set those values and run `docker compose up -d`. A real provider without its key stops start-up with a clear message; it never falls back to the fake one silently. The fake LLM can also simulate failures for testing (`FAKE_LLM_MODE=invalid | invalid_once | timeout | empty`).

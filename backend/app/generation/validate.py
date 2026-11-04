@@ -49,7 +49,7 @@ def normalise(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
-def _strip_code_fence(raw: str) -> str:
+def strip_code_fence(raw: str) -> str:
     text = raw.strip()
     if text.startswith("```") and text.endswith("```"):
         text = text[3:-3].strip()
@@ -63,7 +63,7 @@ def validate_answer(
 ) -> ValidatedAnswer | ValidationFailure:
     # Layer 1: JSON syntax.
     try:
-        data = json.loads(_strip_code_fence(raw))
+        data = json.loads(strip_code_fence(raw))
     except json.JSONDecodeError:
         return ValidationFailure("not_json", "The reply was not a valid JSON object.")
 

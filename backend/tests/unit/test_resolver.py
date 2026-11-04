@@ -40,8 +40,15 @@ def test_elliptical_follow_up_uses_the_previous_question(question: str) -> None:
     assert resolved.standalone == f"{PENALTY.question} {question}"
 
 
-def test_a_complete_new_question_is_unchanged() -> None:
-    question = "How often must the Supplier perform a PM-A service on each tractor?"
+@pytest.mark.parametrize(
+    "question",
+    [
+        "How often must the Supplier perform a PM-A service on each tractor?",
+        # Short but complete (4 content words): must not be glued to the previous turn.
+        "What is the detention rate per hour?",
+    ],
+)
+def test_a_complete_new_question_is_unchanged(question: str) -> None:
     resolved = RuleBasedResolver().resolve(question, [PENALTY])
     assert not resolved.uses_context
     assert resolved.standalone == question

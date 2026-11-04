@@ -68,7 +68,10 @@ _CONNECTORS = frozenset({
 })
 # fmt: on
 _TWO_WORD_CONNECTORS = frozenset({"what about", "how about"})
-MAX_ELLIPTICAL_CONTENT_WORDS = 4
+# Two, not more: a complete short question ("What is the penalty for late tire
+# delivery?" has 4 content words) must not be glued to the previous one. Longer
+# follow-ups are still caught when they start with a connector or a pronoun.
+MAX_ELLIPTICAL_CONTENT_WORDS = 2
 _WORD = re.compile(r"[^\W_]+(?:['-][^\W_]+)*")
 
 

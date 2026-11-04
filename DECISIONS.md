@@ -18,6 +18,7 @@ are collected at the end once the related milestones are done.
 | [ADR-009](#adr-009--cpu-inference-load-models-once-bound-the-threads) | CPU inference: load models once, bound the threads | Accepted |
 | [ADR-010](#adr-010--chat-backend-streamed-phases-persisted-turns-resolved-follow-ups) | Chat backend: streamed phases, persisted turns, resolved follow-ups | Accepted |
 | [ADR-013](#adr-013--untrusted-content-flag-exclude-and-warn-disagreeing-sources-degrade-confidence) | Untrusted content: flag, exclude and warn; disagreeing sources degrade confidence | Accepted |
+| [ADR-014](#adr-014--quality-by-behaviour-an-evaluation-harness-over-a-small-question-set) | Quality by behaviour: an evaluation harness over a small question set | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
@@ -192,6 +193,29 @@ are collected at the end once the related milestones are done.
   - An LLM classifier for injections: it costs a call per chunk, it is not deterministic, and it is itself injectable.
   - Picking one source when they disagree (for example, "the exhibit prevails"): that is a legal judgement for a person.
 - **Verified by:** `tests/unit/test_guardrails.py` (12 injection variants detected, 8 ordinary clauses not, every sample contract scanned, the tire agreement vs SLA exhibit sentences and negative cases), `tests/unit/test_answer_service.py` (flagged chunk excluded with a warning, only flagged → insufficient, disagreeing sources → `medium` with a warning) and `tests/integration/test_injection.py` (the real fuel PDF is ingested with pdfplumber and Exhibit C is flagged; `/query` answers 180,000 gallons from page 1, never quotes the injection and warns `prompt_injection`).
+
+## ADR-014 · Quality by behaviour: an evaluation harness over a small question set
+
+- **Context:** there is no large labelled set to compute retrieval or answer scores with, and a score over 21 questions would mostly measure noise. The question is still "how do we know it answers well?".
+- **Decision:** check **behaviour**, not scores. `backend/scripts/eval.py` runs the question set (`sample_data/questions.yaml`) against the **running API**, the same path a user takes, and checks what an analyst would check by hand:
+  - **Per case**, from its `expect` block: the outcome (`answered` / `insufficient_evidence`); at least one citation with the expected file and page; the answer contains one of `answer_has_any` and none of `answer_lacks` (case-insensitive); a confidence cap (`max_confidence`, for contradictions); required `warnings` (`prompt_injection`).
+  - **Leak check** (`results_in.tenant`): every cited document and every retrieved chunk in `details.retrieved` must be one of the asking tenant's documents, as listed by its own `GET /documents`. A chunk of another tenant fails the case even if it was only retrieved and never cited.
+  - **Global checks on every case:** a non-empty answer; no internals in the answer text (UUIDs, tracebacks, SQL, `<document>` context tags); for answered cases, every number in the answer appears in the question or in a cited quote, after normalising the format ("180,000" = "180000", "1,5" = "1.5", "75.00" = "75"). That is a cheap hallucination check: the quotes were already verified against the chunks by the API.
+  - **Stability:** `--repeat N` asks each case N times, each in a fresh conversation. Mixed results are `FLAKY`.
+  - **Status and exit code:** `PASS`, `FAIL`, `WARN` (a failed `soft: true` case: the semantic paraphrases) or `FLAKY`. The run exits 1 if a non-soft case is `FAIL` or `FLAKY`: a hard case must be right and stable. Soft cases never fail the run.
+  - **Setup:** for each tenant in the file the script signs a token with the API's key (`issue_token`, tenant looked up in the database), uploads that tenant's PDFs (`--pdfs`, one subfolder per tenant; a duplicate returns the existing document), and waits until each document is `ready` or `failed` (failed ones are reported, not counted as case failures). `--create-tenants` adds missing tenants with the owner URL, for a held-out set such as `tenant_eval`.
+- **Layout:** the checks are pure functions in `scripts/eval_lib.py`; the HTTP calls go through a four-method `Api` protocol, implemented with httpx in `eval.py` and with a dict in the tests. The harness stays in `scripts/` and not in `app/`: it is tooling, never imported by the API or the worker, and `make eval` can mount the current `scripts/` into the existing image, so editing the harness or the questions needs no rebuild.
+- **How to run:** with the stack up, `make eval` (all cases) or `make eval ARGS="--only carrier-detention-rate --repeat 3"`. Other flags: `--kinds lexical,isolation`, `--json out.json`, `--no-upload`, `--ingest-timeout`. The held-out real-contract set: `make eval-real PDFS=/path/to/pdfs` (questions in `sample_data/calibration/questions_eval_real.yaml`, which may use the extra kinds `near_miss` and `absent_terms`; any kind is accepted). From the host it also runs as `cd backend && uv run python scripts/eval.py`, given `JWT_SECRET` (the default key lives in a Docker volume the host cannot read).
+- **Rejected:**
+  - Scores (recall@k, MRR, LLM-as-judge) over 21 questions: too few cases for a number to mean anything, and a judge adds a second model to trust. The behaviour checks are exact and explain every failure in one line.
+  - Calling the services in-process: it would skip the HTTP layer, the auth, RLS and the worker, which are the parts most likely to break isolation.
+- **Limits:**
+  - The set is small and hand-written; it proves the designed behaviours (isolation, refusal, contradiction, injection), not general quality.
+  - `sources` passes when one expected page is cited; for a contradiction it does not require both sides.
+  - The number check can flag a correct answer that adds a number of its own (a section number not in the quote), and it cannot see a wrong figure that also appears in the quote.
+  - String checks accept any listed variant: a paraphrase that drops the figure fails, a wrong answer that happens to contain one passes.
+  - Uploading again re-creates the sample documents that are meant to fail (a failed document does not block a new upload of the same file).
+- **Verified by:** `tests/unit/test_eval_lib.py`: each check passing and failing, number normalisation, the leak check on citations and on retrieved-only chunks, soft to `WARN`, repeat to `FLAKY`, the exit code, document polling with a timeout, and loading the sample set.
 
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 

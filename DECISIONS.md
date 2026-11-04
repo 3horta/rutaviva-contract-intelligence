@@ -53,17 +53,17 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   | Option | Risk | Cost |
   |---|---|---|
   | `tenant_id` column + mandatory filter in code | One forgotten `WHERE` leaks data | Lowest |
-  | **Column + Row Level Security (chosen)** | Owners and superusers bypass RLS unless it is forced; the tenant must be set in every transaction, in the API and in the worker; harder to debug | One extra role, a policy per table, `set_config` per transaction |
+  | **Column + Row Level Security (chosen)** | Superusers and `BYPASSRLS` roles always bypass it, and table owners do unless it is forced; the tenant must be set in every transaction, in the API and in the worker; harder to debug | One extra role, a policy per table, `set_config` per transaction |
   | Schema or database per tenant | Strongest | Migrations and connections multiplied by N |
 
 - **Decision:**
   - Every tenant table has `tenant_id`, including the child tables (`chunks`, `messages`), so search filters without a join.
   - RLS is `ENABLE` + `FORCE` on those tables. The policy reads `NULLIF(current_setting('app.tenant_id', true), '')::uuid`, so **with no tenant set, nothing is visible** (fails closed).
-  - The app connects as `rutaviva_app`, which is neither superuser nor owner. Migrations use the owner.
+  - The app connects as `rutaviva_app` (`NOSUPERUSER NOBYPASSRLS`, not the owner of any table). That role is what isolates: in Compose the owner used by the migrations is `POSTGRES_USER`, a superuser in the official image, which sees every row. In production the owner would be a non-superuser role, and `FORCE` would apply to it.
   - The tenant is set with `set_config('app.tenant_id', …, true)`, scoped to the transaction, so nothing leaks through the connection pool.
   - Composite FKs `(parent_id, tenant_id)` make it impossible for a chunk or message to belong to another tenant than its parent.
 - **Rejected:** a filter in code only, because isolation would depend on every query remembering the `WHERE`.
-- **Pending measurement:** whether RLS (non-leakproof operators such as `@@` and `<=>`) prevents the GIN or HNSW index from being used. An `EXPLAIN` will be added in the isolation milestone.
+- **Not measured:** whether RLS (non-leakproof operators such as `@@` and `<=>`) prevents the GIN or HNSW index from being used. No `EXPLAIN` was run; it is listed in [Known limits](#known-limits).
 - **Verified by:** `backend/tests/integration/test_schema.py`:
   - tenant B sees none of A's rows without any `WHERE`;
   - no tenant set means no rows;
@@ -499,6 +499,7 @@ Each case gets a different response:
 - **Extraction:** no OCR, so a scanned PDF fails with `empty_pdf`. Multi-column layouts and tables are read in text order.
 - **Injection detection** is pattern-based: a paraphrased or split injection can pass. The prompt's delimiting and the citation validation still apply (ADR-013).
 - **Disagreement detection** compares figures, not meaning (ADR-013).
+- **Vector search with many tenants:** the HNSW index is scanned first and the tenant filter applied after it, so with many tenants the vector branch can return fewer than its 40 candidates (never another tenant's rows). Whether RLS stops the indexes from being used was not measured with `EXPLAIN` (ADR-002). The options are pgvector's iterative scans, a higher `ef_search` or per-tenant partial indexes.
 - **Auth:** one test JWT per tenant; no users, roles or revocation.
 - **Evaluation:** 21 hand-written questions prove behaviours, not general quality (ADR-014).
 

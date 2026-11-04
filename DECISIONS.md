@@ -551,11 +551,11 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - `src/api/queryStream.ts` POSTs with `fetch`, reads the `ReadableStream` and parses the `event:`/`data:` blocks itself (CRLF, split chunks, comments, unknown events ignored). It resolves with the `result`, rejects with an `ApiError` on an `error` event or a stream that ends without either. The UI never sees SSE details.
   - The server is the source of truth: a finished answer is written into the cached conversation (TanStack Query) exactly as stored; only the turn in progress lives in component state (`useChat`).
   - `/chat/:conversationId?` is one route, so the page stays mounted when a new chat gets its id (`navigate(..., { replace: true })` on the `conversation` event).
-  - Stop aborts the fetch. The backend keeps working and stores the turn if it completes, so the page reloads the conversation 1.5 s later and replaces the "stopped" note if the turn was saved.
+  - Stop aborts the fetch. The backend stores the question as an interrupted turn and drops the answer even if it completes later (ADR-010); the page reloads the conversation 1.5 s later and shows that turn, with "Ask again", in place of the "stopped" note.
   - Answers are rendered from a parsed Markdown subset (paragraphs, lists, bold, inline code) as React elements; `dangerouslySetInnerHTML` stays banned by lint.
   - Leaving the page or switching tenant aborts the stream (the page is remounted per tenant; the query cache is cleared).
 - **Rejected:** a global chat store that keeps answering after leaving the page (as the reference does): more state for little gain, since the backend stores the turn anyway.
-- **Left out:** suggested follow-ups, dictation and charts: the backend has no support for them. (Feedback buttons came later: ADR-019.)
+- **Left out:** dictation and charts: the backend has no support for them. (Suggested follow-ups and generated titles came later with ADR-010, and feedback buttons with ADR-019.)
 - **Verified by:** `queryStream.test.ts` (split chunks, several events per chunk, CRLF, missing result, error event), `markdown.test.ts`, `grouping.test.ts`.
 
 ## ADR-F02 · CI runs the frontend checks in their own job

@@ -27,6 +27,7 @@ are collected at the end once the related milestones are done.
 | [ADR-F06](#adr-f06--whole-app-tests-over-the-mock-api) | Whole-app tests over the mock API | Accepted |
 | [ADR-F07](#adr-f07--accessibility-checked-by-tests-contrast-checked-on-the-tokens) | Accessibility checked by tests; contrast checked on the tokens | Accepted |
 | [ADR-F08](#adr-f08--frontend-code-review-what-was-fixed-what-is-debt) | Frontend code review: what was fixed, what is debt | Accepted |
+| [ADR-F09](#adr-f09--pages-load-as-separate-chunks) | Pages load as separate chunks | Accepted |
 
 ---
 
@@ -334,3 +335,21 @@ are collected at the end once the related milestones are done.
   - Rename and delete are mutations without an abort signal, which is normal for writes.
   - `openapi.json` is not checked against the backend code in CI (see ADR-F05).
   - The mock's `delay` adds an abort listener it never removes (mock only).
+
+## ADR-F09 · Pages load as separate chunks
+
+- **Decision:**
+  - The four pages (dashboard, documents, document detail, chat) use React Router's `lazy` route property, so each one is its own chunk, fetched the first time its route is visited.
+  - The shell (sidebar, top bar, token screens), the route error page and the not-found page stay in the main bundle.
+  - A chunk that fails to load is a route error, shown inside the shell with "Reload".
+  - PDF.js (the viewer) and jsPDF (the export) were already lazy and stay so.
+- **Why `lazy` and not `React.lazy` + `Suspense`:** the router fetches the chunk before it renders the route. That needs no `Suspense` boundary per page and no blank fallback between pages.
+- **Bundle (production build, `vite build`):**
+
+  | | Main JS | Main JS gzip | Main CSS |
+  |---|---|---|---|
+  | Before | 339.56 kB | 107.53 kB | 34.20 kB |
+  | After | 277.01 kB | 89.41 kB (−17 %) | 13.17 kB |
+
+  - The pages are small: dashboard 7.4 kB, documents 8.2 kB, detail 10.6 kB, chat 34.8 kB.
+  - What remains in the main chunk is mostly React, React Router and TanStack Query.

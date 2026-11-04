@@ -27,6 +27,7 @@ are collected at the end once the related milestones are done.
 | [ADR-F05](#adr-f05--frontend-types-generated-from-a-committed-openapi-document) | Frontend types generated from a committed OpenAPI document | Accepted |
 | [ADR-F06](#adr-f06--whole-app-tests-over-the-mock-api) | Whole-app tests over the mock API | Accepted |
 | [ADR-F07](#adr-f07--accessibility-checked-by-tests-contrast-checked-on-the-tokens) | Accessibility checked by tests; contrast checked on the tokens | Accepted |
+| [ADR-F08](#adr-f08--frontend-code-review-what-was-fixed-what-is-debt) | Frontend code review: what was fixed, what is debt | Accepted |
 
 ---
 
@@ -323,3 +324,32 @@ are collected at the end once the related milestones are done.
   - Reviewed in the CSS: every page collapses to one column (dashboard and detail below 1000 px, chat below 900 px with the history folded behind a "History" button). Wide tables scroll inside their own wrapper, so the page itself never scrolls sideways.
   - Not verified with screenshots at 375 and 1280 px: no automated browser could run in this environment. That check is pending.
 - **States:** every page uses the same `LoadingState`, `StateBlock` (empty, not found) and `ErrorAlert` (with the trace id) pieces. "No permission" is the shell's token screens (401). Another tenant's document or conversation is a 404, shown as "not found", exactly like a missing one.
+
+## ADR-F08 · Frontend code review: what was fixed, what is debt
+
+- **Reviewed:** all of `frontend/src`, looking for:
+  - effects without cleanup;
+  - requests without an `AbortSignal`;
+  - races on tenant or page switches;
+  - unstable keys;
+  - duplicated state;
+  - `any` or needless casts;
+  - components over ~200 lines.
+- **Fixed (real bugs):**
+  - A new conversation was fetched before the backend had stored it, so a 404 replaced the answer in progress (found by the Task 5 tests; separate commit).
+  - Opening another conversation after scrolling up kept "not following", so it did not open at its end. An export error also stayed on screen across conversations.
+  - A comment in `useTheme` still pointed to the inline script that the CSP work moved to `public/theme-init.js`.
+- **Checked and fine:**
+  - Every effect cleans up (timers, `ResizeObserver`, PDF.js tasks, blob URLs, the upload queue, the chat stream).
+  - Every query passes React Query's `signal`.
+  - Tenant switches clear the cache and remount the pages, so in-flight answers for the old tenant land in removed queries. A 401 only flags the token it was sent with.
+  - The casts are `noUncheckedIndexedAccess` narrowing or parsed JSON. There is no `any`.
+  - The index keys in `Markdown` are over text that is parsed again on every render and never reordered.
+- **Debt (not changed: it works, and a change would be a refactor):**
+  - `ChatPage` (~220 lines) and `ConversationSidebar` (~220 lines) are past the 200-line mark. The logic is already out of the view (`useChat`, `queries.ts`, `grouping.ts`). A `ConversationItem` component would be the next split.
+  - `DocumentDetailPage` (~250 lines) mixes the KPIs and the viewer frame; it could split along those lines.
+  - SSE payloads are cast to their type, not validated. They come from our own API, and a schema validator would be a new dependency.
+  - "Open PDF" is not aborted when leaving the page mid-download. The result simply goes into the cache.
+  - Rename and delete are mutations without an abort signal, which is normal for writes.
+  - `openapi.json` is not checked against the backend code in CI (see ADR-F05).
+  - The mock's `delay` adds an abort listener it never removes (mock only).

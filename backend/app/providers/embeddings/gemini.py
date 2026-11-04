@@ -10,7 +10,8 @@
 
 Switching embedding model means REINDEXING: every document stores the `model_id` it
 was embedded with, and search only compares vectors of the same model, so documents
-indexed with another model stop being found until `scripts/reindex.py` runs.
+indexed with another model stop being found. There is no reindex job: switching means
+ingesting again into an empty database.
 """
 
 import math

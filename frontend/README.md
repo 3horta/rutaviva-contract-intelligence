@@ -73,7 +73,7 @@ In mock mode the chat recognises a few test questions:
 - **CSP:** `script-src 'self'` and `style-src 'self'`, with no `unsafe-inline` and no `unsafe-eval`. The pre-paint theme script is a file, not inline.
 
 **Left out, and why:**
-- 👍/👎 feedback, dictation and charts in answers: the backend does not support them.
+- Dictation and charts in answers: the backend does not support them.
 - Playwright end-to-end tests and error reporting (Sentry): out of scope for the test.
 - i18n: the UI is English only.
 

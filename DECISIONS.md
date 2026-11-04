@@ -398,13 +398,27 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - Under each stored answer (`answered` or `insufficient_evidence`; never an interrupted turn or the answer being written), two toggle buttons next to Copy and Ask again: **Useful** and **Not useful** (`aria-pressed`, labelled, reachable by keyboard; disabled while another answer is being written, like Ask again).
   - Choosing one stores it at once and opens an optional comment box ("What was useful?" / "What went wrong?", at most 1000 characters) with Send and Cancel. Escape cancels. Either way focus goes back to the chosen button, and a polite status says "Thanks for the feedback".
   - Choosing the other rating replaces it (and starts without a comment); choosing the same one again takes it back.
-  - The change is shown at once and stored in the background, one request after another, so a quick change of mind is stored in order. A failed request puts back what was shown before and says so.
-  - One client function, `sendFeedback` (`src/api/feedback.ts`): PUT the rating, DELETE to clear it. The mock API implements the route with the same rules (only answers, `up`/`down`, comment trimmed and capped), so the demo and the tests run it end to end.
-- **Storage: pending.** The API has no feedback route yet, so the real client keeps the rating on screen only, until the page is reloaded; it does not call a route that does not exist. The mock API turns the route on.
+  - The change is shown at once and stored in the background, one request after another, so a quick change of mind is stored in order. A failed request puts back what was shown before and says so. A stored rating is written into the cached conversation, so it is there when the answer is drawn again.
+  - One client function, `sendFeedback` (`src/api/feedback.ts`): PUT the rating, DELETE to clear it. The mock API implements the route with the same rules.
+- **Decision (storage):**
+  - A table `message_feedback`: `message_id` (primary key: one rating per answer), `tenant_id`, `rating` (`up` / `down`, a CHECK), `comment` (trimmed, null when blank, at most 1000 characters, a CHECK too), `created_at`, `updated_at`.
+  - Isolation as in ADR-002: a composite FK `(message_id, tenant_id)` to `messages` (which gets a unique `(id, tenant_id)` for it), forced RLS with the same tenant policy, read and write for the app role. `ON DELETE CASCADE`: a retry that replaces a turn, or a deleted conversation, takes its ratings along.
+  - `PUT /conversations/{id}/messages/{id}/feedback` (`{rating, comment?}`) upserts (`INSERT ... ON CONFLICT DO UPDATE`); `DELETE` clears it (204, also when there was none). The tenant comes from the JWT only. A message that is not in that conversation of that tenant is a 404 Problem Details, like a missing one; a question or an interrupted turn, or an invalid body (unknown rating, unknown field, comment too long), is a 422.
+  - The conversation returns each answer's rating as `MessageOut.feedback` (null when not rated), read in one query for the whole conversation.
+  - Observability: a `feedback.recorded` log line (rating or `cleared`, message and conversation ids, whether there is a comment) and `feedback.rating` on the request's span. The comment is the user's text: it is never logged nor put on a span.
 - **Rejected:**
+  - Columns on `messages`: a message is written once, as displayed; feedback changes later, has its own timestamps and grants, and can be dropped without touching the answers.
   - Asking for a comment only after a negative rating: what made an answer useful is also worth knowing, and the box is optional and one keystroke away from closed.
   - A modal dialog for the comment: it interrupts reading the thread for an optional note.
-- **Verified by:** `src/test/feedback.test.tsx` (rate, comment, change, cancel, Escape, take back, failure, not-enough-evidence answers, nothing while an answer is written), `src/api/feedback.test.ts` (no request while the route is off; PUT/DELETE otherwise), and an axe check with the comment box open (`src/test/a11y.test.tsx`).
+  - Keeping every rating as history: one current rating per answer is what the analyst sees and what a quality review needs; the log line keeps the sequence.
+- **Consequences and limits:**
+  - There are no users (ADR-016): a rating belongs to the tenant, so two analysts of the same tenant share it and the last one wins.
+  - Ratings are stored, not yet used: no report or export of the "not useful" answers, and they do not feed the evaluation set automatically.
+  - The stored comment is not shown again after the box closes; only the rating is.
+- **Verified by:**
+  - `backend/tests/unit/test_feedback.py`: the body (trimmed, capped, closed set, no extra fields), what can be rated, the upsert issued, the log and span without the comment, and the routes' 200 / 204 / 404 / 422.
+  - `backend/tests/integration/test_feedback_api.py`, real Postgres: upsert (one row, `updated_at` moves), clear, the rating in the conversation, questions and other conversations' messages refused, tenant B can neither rate nor see A's rating, RLS hides and refuses rows of another tenant, the composite FK refuses a cross-tenant row even to the owner, and the cascade on retry and delete.
+  - `frontend/src/test/feedback.test.tsx` (rate, comment, change, cancel, Escape, take back, failure, not-enough-evidence answers, nothing while an answer is written, the rating back after reopening the conversation), `src/api/feedback.test.ts`, and an axe check with the comment box open (`src/test/a11y.test.tsx`).
 
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 
@@ -417,7 +431,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - Answers are rendered from a parsed Markdown subset (paragraphs, lists, bold, inline code) as React elements; `dangerouslySetInnerHTML` stays banned by lint.
   - Leaving the page or switching tenant aborts the stream (the page is remounted per tenant; the query cache is cleared).
 - **Rejected:** a global chat store that keeps answering after leaving the page (as the reference does): more state for little gain, since the backend stores the turn anyway.
-- **Left out:** feedback buttons, suggested follow-ups, dictation and charts: the backend has no support for them.
+- **Left out:** suggested follow-ups, dictation and charts: the backend has no support for them. (Feedback buttons came later: ADR-019.)
 - **Verified by:** `queryStream.test.ts` (split chunks, several events per chunk, CRLF, missing result, error event), `markdown.test.ts`, `grouping.test.ts`.
 
 ## ADR-F02 · CI runs the frontend checks in their own job

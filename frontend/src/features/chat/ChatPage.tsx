@@ -8,7 +8,15 @@ import { Page } from "../../components/ui/Page";
 import { Composer } from "./Composer";
 import { ConversationSidebar } from "./ConversationSidebar";
 import { exportConversationPdf } from "./exportPdf";
-import { AssistantMessage, FailedAnswer, InterruptedNote, PendingAnswer, UserMessage } from "./Message";
+import {
+  AssistantMessage,
+  FailedAnswer,
+  InterruptedAnswer,
+  InterruptedNote,
+  PendingAnswer,
+  Suggestions,
+  UserMessage,
+} from "./Message";
 import { useConversation } from "./queries";
 import { useChat } from "./useChat";
 import styles from "./Chat.module.css";
@@ -41,6 +49,10 @@ export function ChatPage() {
   // A retry replaces the last turn: hide it while the new answer is written.
   const messages = live?.retry && live.state === "streaming" ? stored.slice(0, -2) : stored;
   const lastAnswerIndex = messages.at(-1)?.role === "assistant" ? messages.length - 1 : -1;
+  // Suggested follow-ups: only under the last answer, and not while another is written.
+  const lastAnswer = lastAnswerIndex >= 0 ? messages[lastAnswerIndex] : undefined;
+  const suggestions =
+    !live && lastAnswer?.status === "answered" ? (lastAnswer.suggestions ?? []) : [];
   const title = conversation.data?.title || "New chat";
 
   // Another conversation opens at its end, with nothing left from the previous one.
@@ -71,6 +83,13 @@ export function ChatPage() {
   function retryLast() {
     const question = messages[lastAnswerIndex - 1];
     if (question?.role === "user") ask(question.content, true);
+  }
+
+  /** An interrupted turn: the last one is replaced (a retry); an earlier one is asked anew. */
+  function askAgain(index: number) {
+    if (index === lastAnswerIndex) return retryLast();
+    const question = messages[index - 1];
+    if (question?.role === "user") ask(question.content);
   }
 
   async function exportPdf() {
@@ -127,6 +146,8 @@ export function ChatPage() {
         {messages.map((message, index) =>
           message.role === "user" ? (
             <UserMessage key={message.id} content={message.content} />
+          ) : message.status === "interrupted" ? (
+            <InterruptedAnswer key={message.id} locked={streaming} onAskAgain={() => askAgain(index)} />
           ) : (
             <AssistantMessage
               key={message.id}
@@ -136,6 +157,7 @@ export function ChatPage() {
             />
           ),
         )}
+        {suggestions.length > 0 && <Suggestions suggestions={suggestions} onAsk={(question) => ask(question)} />}
         {live && (
           <>
             <UserMessage content={live.question} />

@@ -7,7 +7,7 @@ import { streamQuery } from "../../api/queryStream";
 import type { ConversationDetail, ConversationMessage, PhaseUpdate, QueryResponse } from "../../api/types";
 import { conversationKeys } from "./queries";
 
-/** After Stop, the server gets a moment to store the turn if it had finished. */
+/** After Stop, the server gets a moment to store what it kept of the turn. */
 export const RELOAD_AFTER_STOP_MS = 1_500;
 
 /** The turn on screen that the server has not returned as stored messages yet. */
@@ -45,6 +45,7 @@ function withTurn(
     citations: [],
     warnings: [],
     details: null,
+    suggestions: [],
     created_at: now,
   };
   const answered: ConversationMessage = {
@@ -56,9 +57,18 @@ function withTurn(
     citations: result.citations,
     warnings: result.warnings,
     details: result.details ?? null,
+    suggestions: [],
     created_at: now,
   };
   return { ...detail, updated_at: now, messages: [...kept, asked, answered] };
+}
+
+/** The suggested follow-ups that arrive a moment after their answer. */
+function withSuggestions(detail: ConversationDetail, messageId: string, suggestions: string[]): ConversationDetail {
+  return {
+    ...detail,
+    messages: detail.messages.map((message) => (message.id === messageId ? { ...message, suggestions } : message)),
+  };
 }
 
 /**
@@ -73,6 +83,11 @@ export function useChat(conversationId: string | undefined) {
   /** For screen readers, through an aria-live region. */
   const [announcement, setAnnouncement] = useState("");
   const controllerRef = useRef<AbortController | null>(null);
+  /**
+   * The open stream already delivered its answer and only the optional tail
+   * (suggestions, title) is left: it never blocks a new question.
+   */
+  const tailRef = useRef(false);
   const reloadTimer = useRef<number | undefined>(undefined);
   const mounted = useRef(true);
   // The conversation on screen now, for callbacks that outlive a render.
@@ -109,8 +124,11 @@ export function useChat(conversationId: string | undefined) {
           staleTime: 0,
         })
         .then((fresh) => {
-          // A new last message means the turn was stored: it replaces the note.
-          if ((fresh.messages.at(-1)?.id ?? null) !== lastIdBefore) {
+          // A new last message (the stopped turn, kept as interrupted) replaces
+          // the note; so does a stopped retry of an interrupted turn, which the
+          // server leaves as it was.
+          const last = fresh.messages.at(-1);
+          if ((last?.id ?? null) !== lastIdBefore || last?.status === "interrupted") {
             setLive((turn) => (turn?.state === "interrupted" ? null : turn));
           }
         })
@@ -124,11 +142,17 @@ export function useChat(conversationId: string | undefined) {
 
   async function ask(text: string, retry = false): Promise<void> {
     const question = text.trim();
-    if (!question || controllerRef.current) return;
+    if (!question) return;
+    if (controllerRef.current) {
+      if (!tailRef.current) return; // an answer is in progress
+      controllerRef.current.abort(); // the previous answer is in: drop its tail
+    }
     window.clearTimeout(reloadTimer.current);
 
     const controller = new AbortController();
     controllerRef.current = controller;
+    tailRef.current = false;
+    let answered = false;
     let id = conversationId ?? null;
     let unsaved = false;
     const lastIdBefore = id
@@ -138,14 +162,44 @@ export function useChat(conversationId: string | undefined) {
     setLive({ conversationId: id, question, retry, unsaved, state: "streaming", phase: null, error: null });
     setAnnouncement("Answering…");
 
+    /** The validated answer: shown at once, even if the stream goes on. */
+    function showResult(result: QueryResponse) {
+      answered = true;
+      tailRef.current = true;
+      const key = conversationKeys.detail(result.conversation_id ?? id ?? "");
+      if (queryClient.getQueryData(key)) {
+        queryClient.setQueryData<ConversationDetail>(key, (detail) =>
+          detail ? withTurn(detail, question, result, retry) : detail,
+        );
+      } else {
+        void queryClient.invalidateQueries({ queryKey: key });
+      }
+      setLive(null);
+      setAnnouncement("Answer ready");
+      void queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
+    }
+
     try {
-      const result = await streamQuery(
+      await streamQuery(
         { question, conversation_id: id ?? undefined, retry },
         {
           signal: controller.signal,
           onEvent: (event) => {
             if (event.type === "phase") {
               update({ phase: event.data });
+            } else if (event.type === "result") {
+              showResult(event.data);
+            } else if (event.type === "suggestions" && id) {
+              const { message_id, suggestions } = event.data;
+              queryClient.setQueryData<ConversationDetail>(conversationKeys.detail(id), (detail) =>
+                detail ? withSuggestions(detail, message_id, suggestions) : detail,
+              );
+            } else if (event.type === "title") {
+              const { conversation_id, title } = event.data;
+              queryClient.setQueryData<ConversationDetail>(conversationKeys.detail(conversation_id), (detail) =>
+                detail ? { ...detail, title } : detail,
+              );
+              void queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
             } else if (event.type === "conversation" && !id) {
               // A new chat gets its id: it goes into the URL, without a history entry.
               const newId = event.data.conversation_id;
@@ -165,18 +219,10 @@ export function useChat(conversationId: string | undefined) {
           },
         },
       );
-      const key = conversationKeys.detail(result.conversation_id ?? id ?? "");
-      if (queryClient.getQueryData(key)) {
-        queryClient.setQueryData<ConversationDetail>(key, (detail) =>
-          detail ? withTurn(detail, question, result, retry) : detail,
-        );
-      } else {
-        void queryClient.invalidateQueries({ queryKey: key });
-      }
-      setLive(null);
-      setAnnouncement("Answer ready");
     } catch (error) {
-      if (controller.signal.aborted) {
+      if (answered) {
+        // Only the optional tail was lost: the answer is already shown.
+      } else if (controller.signal.aborted) {
         update({ state: "interrupted" });
         setAnnouncement("Answer stopped");
         if (id) reloadAfterStop(id, lastIdBefore, unsaved);
@@ -186,18 +232,23 @@ export function useChat(conversationId: string | undefined) {
         if (id && unsaved) leaveUnsaved(id);
       }
     } finally {
-      controllerRef.current = null;
+      // A newer question may have taken over (it aborted this tail).
+      if (controllerRef.current === controller) {
+        controllerRef.current = null;
+        tailRef.current = false;
+      }
       void queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
     }
   }
 
+  /** The Stop button: only an answer in progress, never the tail of a finished one. */
   function stop() {
-    controllerRef.current?.abort();
+    if (!tailRef.current) controllerRef.current?.abort();
   }
 
   /** "New chat": forgets a failed or stopped turn (never one in progress). */
   function reset() {
-    if (controllerRef.current) return;
+    if (controllerRef.current && !tailRef.current) return;
     window.clearTimeout(reloadTimer.current);
     setLive(null);
     setAnnouncement("");

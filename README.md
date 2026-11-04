@@ -129,7 +129,7 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 - Answers validated in three layers (JSON, Pydantic schema, quotes grounded in the chunks), with a retry carrying the error and an explicit "not enough information" otherwise. Timeouts and transient errors have bounded retries.
 - Tenant isolation: a JWT per tenant, a `tenant_id` filter, and forced Row Level Security under a non-owner role.
 - Prompt injection in documents is detected at ingestion; flagged chunks are excluded and the answer warns. Disagreeing sources cap the confidence.
-- Chat over SSE with live phases, persisted conversations (search, rename, delete) and follow-up questions.
+- Chat over SSE with live phases, persisted conversations (search, rename, delete) and follow-up questions; with a real LLM, generated conversation titles and suggested follow-ups; a stopped answer keeps its question to ask again.
 - React app: upload with status, document table with state in the URL, PDF viewer with the cited passage highlighted, chat with citations and export, dark mode, accessibility tests.
 - OpenTelemetry: one trace from the upload's HTTP request through the Celery task; queries traced with the LLM's latency and tokens, linked to the ingestion traces; JSON logs with `trace_id`.
 - Docker Compose for everything, environment-based configuration, reproducible migrations, and CI.
@@ -140,7 +140,7 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 - **Reranking:** no cross-encoder. With a real LLM a relevance judge filters the candidates; in keyless mode the fused order is used.
 - **Metrics:** no OpenTelemetry metrics or dashboards (Prometheus or Grafana); quality and cost signals are span attributes and logs.
 - **Traces from the browser:** traces start at the API.
-- **Product features:** 👍/👎 feedback on answers, suggested follow-up questions.
+- **Product features:** 👍/👎 feedback on answers.
 - **Operations:** a periodic sweep of expired leases (an expired lease is taken over when the task is delivered again), a transactional outbox for enqueuing (a crash between the upload's commit and the enqueue leaves the document `pending`), Docker secrets for provider keys, and a pre-built image in a registry.
 - **Deleting documents:** there is no endpoint to delete a document with its file and chunks.
 - **Users:** auth is one test JWT per tenant; there are no users, passwords, roles or token revocation. The demo sign-in buttons only hand out those JWTs to whoever can reach the API (ADR-016); they are not real authentication.

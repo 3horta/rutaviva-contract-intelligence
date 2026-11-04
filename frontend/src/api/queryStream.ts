@@ -11,6 +11,8 @@ import type {
   ProblemDetails,
   QueryRequest,
   QueryResponse,
+  SuggestionsUpdate,
+  TitleUpdate,
 } from "./types";
 
 export interface SseMessage {
@@ -22,6 +24,8 @@ export type QueryStreamEvent =
   | { type: "conversation"; data: ConversationStarted }
   | { type: "phase"; data: PhaseUpdate }
   | { type: "result"; data: QueryResponse }
+  | { type: "suggestions"; data: SuggestionsUpdate }
+  | { type: "title"; data: TitleUpdate }
   | { type: "error"; data: ProblemDetails };
 
 /** One block of lines, as the SSE spec reads it. Comments (": ping") are skipped. */
@@ -53,7 +57,7 @@ export function takeSseMessages(buffer: string): { messages: SseMessage[]; rest:
   return { messages, rest };
 }
 
-const EVENT_TYPES = new Set(["conversation", "phase", "result", "error"]);
+const EVENT_TYPES = new Set(["conversation", "phase", "result", "suggestions", "title", "error"]);
 
 /** Unknown event names are ignored, so the backend can add new ones safely. */
 function toEvent(message: SseMessage): QueryStreamEvent | null {
@@ -68,8 +72,12 @@ function toEvent(message: SseMessage): QueryStreamEvent | null {
 export const INCOMPLETE_STREAM_MESSAGE = "The answer stopped before it finished. Try again.";
 
 /**
- * Reads the stream until its last event: resolves with the `result`, rejects
- * with an ApiError for an `error` event or a stream that ends without either.
+ * Reads the stream until its end: resolves with the `result`, rejects with an
+ * ApiError for an `error` event or a stream that ends without either.
+ *
+ * After the `result` the server may still send `suggestions` and `title`
+ * (passed to `onEvent`). That tail is optional: once the result is in, an
+ * abort, a broken connection or an unreadable event just ends the stream.
  */
 export async function readQueryStream(
   body: ReadableStream<Uint8Array>,
@@ -78,12 +86,14 @@ export async function readQueryStream(
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = "";
+  let result: QueryResponse | null = null;
   try {
     for (;;) {
       let chunk: ReadableStreamReadResult<Uint8Array>;
       try {
         chunk = await reader.read();
       } catch (error) {
+        if (result) return result;
         if (error instanceof DOMException && error.name === "AbortError") throw error;
         throw networkError();
       }
@@ -93,15 +103,25 @@ export async function readQueryStream(
       buffer = rest;
 
       for (const message of messages) {
-        const event = toEvent(message);
+        let event: QueryStreamEvent | null;
+        try {
+          event = toEvent(message);
+        } catch (error) {
+          if (result) continue;
+          throw error;
+        }
         if (!event) continue;
         if (event.type === "error") {
+          if (result) continue;
           throw apiErrorFromBody(event.data.status || 500, message.data);
         }
+        if (event.type === "result") result = event.data;
         onEvent?.(event);
-        if (event.type === "result") return event.data;
       }
-      if (chunk.done) throw new ApiError({ status: 0, title: INCOMPLETE_STREAM_MESSAGE });
+      if (chunk.done) {
+        if (result) return result;
+        throw new ApiError({ status: 0, title: INCOMPLETE_STREAM_MESSAGE });
+      }
     }
   } finally {
     reader.cancel().catch(() => undefined);

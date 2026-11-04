@@ -77,6 +77,39 @@ describe("readQueryStream", () => {
     expect(events.map((e) => e.type)).toEqual(["result"]);
   });
 
+  it("keeps reading after the result: suggestions and title", async () => {
+    const text =
+      sse("result", RESULT) +
+      sse("suggestions", { message_id: "m1", suggestions: ["Is there a cap?"] }) +
+      sse("title", { conversation_id: "c1", title: "Payment terms" });
+    const { events, result } = await collect(body(text));
+    expect(events.map((e) => e.type)).toEqual(["result", "suggestions", "title"]);
+    expect(events[1]).toEqual({ type: "suggestions", data: { message_id: "m1", suggestions: ["Is there a cap?"] } });
+    expect(result).toEqual(RESULT);
+  });
+
+  it("ignores a broken tail once the result is in", async () => {
+    const text = sse("result", RESULT) + "event: suggestions\ndata: {not json\n\n" + sse("error", { status: 500 });
+    const { events, result } = await collect(body(text));
+    expect(events.map((e) => e.type)).toEqual(["result"]);
+    expect(result).toEqual(RESULT);
+  });
+
+  it("resolves with the result when the tail is aborted", async () => {
+    const encoder = new TextEncoder();
+    const controller = new AbortController();
+    const stream = new ReadableStream<Uint8Array>({
+      start(source) {
+        source.enqueue(encoder.encode(sse("result", RESULT)));
+        controller.signal.addEventListener("abort", () => source.error(new DOMException("Aborted", "AbortError")));
+      },
+    });
+    const reading = readQueryStream(stream);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    controller.abort();
+    await expect(reading).resolves.toEqual(RESULT);
+  });
+
   it("rejects a stream that ends without a result", async () => {
     const stream = body(sse("phase", { phase: "searching", label: "Searching" }));
     await expect(readQueryStream(stream)).rejects.toThrow(INCOMPLETE_STREAM_MESSAGE);

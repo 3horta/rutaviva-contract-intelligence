@@ -1,4 +1,4 @@
-import { AlertTriangle, Check, Copy, FileText, RotateCcw, SearchX, Square } from "lucide-react";
+import { AlertTriangle, Check, Copy, FileText, MessageCirclePlus, RotateCcw, SearchX, Square } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ApiError } from "../../api/errors";
@@ -9,7 +9,7 @@ import { ErrorAlert, Spinner } from "../../components/ui/Feedback";
 import { copyText } from "../../lib/clipboard";
 import { AnswerDetailsView } from "./AnswerDetailsView";
 import { Markdown } from "./Markdown";
-import { CONFIDENCE, PHASE_LABELS, PHASE_PROGRESS, warningLabel } from "./phases";
+import { CONFIDENCE, INTERRUPTED_TEXT, PHASE_LABELS, PHASE_PROGRESS, warningLabel } from "./phases";
 import styles from "./Message.module.css";
 
 export function UserMessage({ content }: { content: string }) {
@@ -179,11 +179,62 @@ export function FailedAnswer({ error, onRetry }: { error: ApiError; onRetry: () 
   );
 }
 
+/** The turn just stopped, until the conversation is reloaded with what the server kept. */
 export function InterruptedNote() {
   return (
     <p className={styles.interrupted} role="status">
       <Square size={12} aria-hidden="true" />
-      Answer stopped. The server may still finish it; if it does, it is saved in this conversation.
+      Answer stopped. The question is kept in this conversation.
     </p>
+  );
+}
+
+interface InterruptedAnswerProps {
+  /** Asks the question again (replacing this turn when it is the last one). */
+  onAskAgain: () => void;
+  locked: boolean;
+}
+
+/** A stored turn without an answer: it was stopped before the server saved one. */
+export function InterruptedAnswer({ onAskAgain, locked }: InterruptedAnswerProps) {
+  return (
+    <article className={`${styles.answer} ${styles.interruptedAnswer}`} aria-label="Interrupted answer">
+      <p className={styles.interrupted}>
+        <Square size={12} aria-hidden="true" />
+        {INTERRUPTED_TEXT}
+      </p>
+      <div className={`${styles.actions} no-print`}>
+        <Button
+          variant="text"
+          size="small"
+          disabled={locked}
+          onClick={onAskAgain}
+          icon={<RotateCcw size={14} aria-hidden="true" />}
+        >
+          Ask again
+        </Button>
+      </div>
+    </article>
+  );
+}
+
+/** Follow-up questions the server suggested for the last answer. */
+export function Suggestions({ suggestions, onAsk }: { suggestions: string[]; onAsk: (question: string) => void }) {
+  return (
+    <section className={`${styles.suggestions} no-print`} aria-label="Suggested questions">
+      <h3 className={styles.suggestionsTitle}>
+        <MessageCirclePlus size={14} aria-hidden="true" />
+        You could also ask
+      </h3>
+      <ul className={styles.suggestionList}>
+        {suggestions.map((suggestion) => (
+          <li key={suggestion}>
+            <button type="button" className={styles.suggestion} onClick={() => onAsk(suggestion)}>
+              {suggestion}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

@@ -52,18 +52,21 @@ class QuestionResolver(Protocol):
 # --- Keyless stand-in ---------------------------------------------------------------------
 
 # Words that carry no topic on their own; whatever is left are the "content words".
-_STOPWORDS = frozenset(
-    """
-    a an the and or but of to in on at for with by from as is are was were be been do does
-    did what which who whom whose when where why how about any some there it its it's this
-    that these those they them their we our you your i me my can could would should will
-    shall may might must please tell show also same y
-    """.split()
-)
+# fmt: off
+_STOPWORDS = frozenset({
+    "a", "an", "the", "and", "or", "but", "of", "to", "in", "on", "at", "for", "with",
+    "by", "from", "as", "is", "are", "was", "were", "be", "been", "do", "does", "did",
+    "what", "which", "who", "whom", "whose", "when", "where", "why", "how", "about", "any",
+    "some", "there", "it", "its", "it's", "this", "that", "these", "those", "they", "them",
+    "their", "we", "our", "you", "your", "i", "me", "my", "can", "could", "would",
+    "should", "will", "shall", "may", "might", "must", "please", "tell", "show", "also",
+    "same", "y",
+})
 # Openers that point back to the previous turn ("and the cap?", "what about Frontera?").
-_CONNECTORS = frozenset(
-    "and also it its it's that this those they them same y".split()
-)
+_CONNECTORS = frozenset({
+    "and", "also", "it", "its", "it's", "that", "this", "those", "they", "them", "same", "y",
+})
+# fmt: on
 _TWO_WORD_CONNECTORS = frozenset({"what about", "how about"})
 MAX_ELLIPTICAL_CONTENT_WORDS = 4
 _WORD = re.compile(r"[^\W_]+(?:['-][^\W_]+)*")

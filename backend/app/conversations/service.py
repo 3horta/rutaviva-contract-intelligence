@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
+from app.conversations.feedback import feedback_by_message
 from app.conversations.resolver import (
     MAX_CONTEXT_TURNS,
     QuestionResolver,
@@ -55,6 +56,7 @@ from app.schemas.conversations import (
     ConversationList,
     ConversationOut,
     ConversationSummary,
+    MessageFeedbackOut,
     MessageOut,
 )
 from app.schemas.query import AnswerDetails, QueryResponse
@@ -437,12 +439,15 @@ def get_conversation(
         .where(Message.conversation_id == conversation_id, Message.tenant_id == tenant_id)
         .order_by(Message.sequence)
     ).all()
+    feedback = feedback_by_message(
+        session, tenant_id, [m.id for m in messages if m.role == MessageRole.ASSISTANT]
+    )
     return ConversationOut(
         id=conversation.id,
         title=conversation.title,
         created_at=conversation.created_at,
         updated_at=conversation.updated_at,
-        messages=[_message_out(message) for message in messages],
+        messages=[_message_out(message, feedback.get(message.id)) for message in messages],
     )
 
 
@@ -533,7 +538,7 @@ def _summary(conversation: Conversation, message_count: int) -> ConversationSumm
     )
 
 
-def _message_out(message: Message) -> MessageOut:
+def _message_out(message: Message, feedback: MessageFeedbackOut | None = None) -> MessageOut:
     stored = dict(message.details or {})
     suggestions = stored.pop(SUGGESTIONS_KEY, None) or []
     return MessageOut(
@@ -546,6 +551,7 @@ def _message_out(message: Message) -> MessageOut:
         warnings=message.warnings,
         details=AnswerDetails.model_validate(stored) if stored else None,
         suggestions=suggestions,
+        feedback=feedback,
         created_at=message.created_at,
     )
 

@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, Field, StringConstraints
 
+from app.db.models import FEEDBACK_COMMENT_MAX_CHARS
 from app.schemas.query import AnswerDetails, Citation, Confidence
 
 MessageRoleOut = Literal["user", "assistant"]
@@ -30,6 +31,30 @@ class ConversationList(BaseModel):
     results: list[ConversationSummary]
 
 
+FeedbackRatingOut = Literal["up", "down"]
+
+
+class MessageFeedbackOut(BaseModel):
+    """The user's rating of an answer. `comment` is trimmed, null when there is none."""
+
+    rating: FeedbackRatingOut
+    comment: str | None
+
+
+class MessageFeedbackIn(BaseModel):
+    """Body of `PUT .../feedback`. A blank comment is stored as none."""
+
+    model_config = {"extra": "forbid"}
+
+    rating: FeedbackRatingOut
+    comment: (
+        Annotated[
+            str, StringConstraints(strip_whitespace=True, max_length=FEEDBACK_COMMENT_MAX_CHARS)
+        ]
+        | None
+    ) = None
+
+
 class MessageOut(BaseModel):
     """A stored message. `status`, `confidence` and `details` are null for user messages
     (and `citations` / `warnings` / `suggestions` empty). An `interrupted` answer has
@@ -46,6 +71,8 @@ class MessageOut(BaseModel):
     # Follow-up questions suggested after an `answered` turn (real LLM only; may be
     # empty, and arrive a moment after the answer).
     suggestions: list[str] = Field(default_factory=list)
+    # The user's rating of an answer; null when not rated (and on user messages).
+    feedback: MessageFeedbackOut | None = None
     created_at: datetime
 
 

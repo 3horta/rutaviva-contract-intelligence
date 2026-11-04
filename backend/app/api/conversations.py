@@ -1,4 +1,5 @@
-"""Conversation endpoints: list, read, rename and delete. Turns are added by `/query`.
+"""Conversation endpoints: list, read, rename and delete, and feedback on an answer.
+Turns are added by `/query`.
 
 A conversation of another tenant answers 404, never 403, so its existence is not revealed.
 """
@@ -9,12 +10,14 @@ from typing import Annotated
 from fastapi import APIRouter, Query, Response
 
 from app.api.deps import CurrentTenant, TenantSession
-from app.conversations import service
+from app.conversations import feedback, service
 from app.schemas.conversations import (
     ConversationList,
     ConversationOut,
     ConversationRename,
     ConversationSummary,
+    MessageFeedbackIn,
+    MessageFeedbackOut,
 )
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
@@ -57,4 +60,34 @@ def delete_conversation(
 ) -> Response:
     """Delete the conversation and all its messages."""
     service.delete_conversation(session, tenant.id, conversation_id)
+    return Response(status_code=204)
+
+
+@router.put("/{conversation_id}/messages/{message_id}/feedback", response_model=MessageFeedbackOut)
+def rate_message(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    body: MessageFeedbackIn,
+    tenant: CurrentTenant,
+    session: TenantSession,
+) -> MessageFeedbackOut:
+    """Rate an answer (`up` / `down`, optional comment), replacing any earlier rating.
+    404 for a message not in this tenant's conversation; 422 for a question, an
+    interrupted turn or an invalid body."""
+    return feedback.rate_message(session, tenant.id, conversation_id, message_id, body)
+
+
+@router.delete(
+    "/{conversation_id}/messages/{message_id}/feedback",
+    status_code=204,
+    response_class=Response,
+)
+def clear_feedback(
+    conversation_id: uuid.UUID,
+    message_id: uuid.UUID,
+    tenant: CurrentTenant,
+    session: TenantSession,
+) -> Response:
+    """Remove the rating of an answer (204 even if it had none)."""
+    feedback.clear_feedback(session, tenant.id, conversation_id, message_id)
     return Response(status_code=204)

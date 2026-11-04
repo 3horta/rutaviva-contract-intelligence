@@ -5,9 +5,10 @@ Run after documents were uploaded and questions asked (CI runs it after `make ev
 1. One upload trace crosses the API and the worker: `POST /documents` in `rutaviva-api`
    and the ingestion spans (extract, chunk, embed, store) in `rutaviva-worker`, with the
    embedding calls as GenAI `embeddings {model}` spans.
-2. A question's trace follows the GenAI semantic conventions (ADR-018): the workflow
-   `invoke_workflow contract_qa`, `embeddings {model}`, `retrieval`, and the answer's
-   `chat {model}` CLIENT span with provider, model, latency and tokens. The workflow span
+2. A question's trace follows the GenAI semantic conventions (ADR-018): its root is the
+   agent `invoke_agent contract_analyst` (with `execute_tool` spans, ADR-021) or the
+   workflow `invoke_workflow contract_qa`; then `embeddings {model}`, `retrieval`, and
+   the answer's `chat {model}` span with provider, model, latency and tokens. The root
    links to the ingestion trace of a document it used.
 
 Standard library only, so it runs on the CI runner without the backend environment.
@@ -26,8 +27,13 @@ import urllib.request
 from typing import Any
 
 INGESTION_SPANS = {"ingest.extract", "ingest.chunk", "ingest.embed", "ingest.store"}
+# The root of a question: the agent (QUERY_MODE=auto, ADR-021) or the fixed workflow.
+AGENT_SPAN = "invoke_agent contract_analyst"
 WORKFLOW_SPAN = "invoke_workflow contract_qa"
-QUERY_SPANS = {WORKFLOW_SPAN, "retrieval"}
+ROOT_SPANS = (AGENT_SPAN, WORKFLOW_SPAN)
+# The prompts that produce the answer: the workflow's (also the keyless agent's) and
+# the model agent's.
+ANSWER_PROMPTS = {"answer", "contract_analyst"}
 CHAT_ATTRIBUTES = {
     "gen_ai.operation.name",
     "gen_ai.provider.name",
@@ -80,13 +86,19 @@ def check_ingestion(trace: dict[str, Any]) -> list[str]:
 
 
 def check_query(trace: dict[str, Any]) -> list[str]:
-    if missing := QUERY_SPANS - operations(trace):
-        return [f"query trace lacks {sorted(missing)}"]
+    roots = [name for name in ROOT_SPANS if name in operations(trace)]
+    if not roots:
+        return [f"query trace has neither {AGENT_SPAN!r} nor {WORKFLOW_SPAN!r}"]
+    root = roots[0]
+    if "retrieval" not in operations(trace):
+        return ["query trace lacks ['retrieval']"]
     problems = []
+    if root == AGENT_SPAN and not genai_spans(trace, "execute_tool"):
+        problems.append("agent trace has no `execute_tool` span")
     if not genai_spans(trace, "embeddings"):
         problems.append("query trace has no GenAI `embeddings` span")
     answers = [
-        s for s in genai_spans(trace, "chat") if tags(s).get("gen_ai.prompt.name") == "answer"
+        s for s in genai_spans(trace, "chat") if tags(s).get("gen_ai.prompt.name") in ANSWER_PROMPTS
     ]
     if not answers:
         return [*problems, "query trace has no `chat` span for the answer prompt"]
@@ -96,26 +108,29 @@ def check_query(trace: dict[str, Any]) -> list[str]:
         problems.append(f"{chat['operationName']} lacks {sorted(missing)}")
     if chat["operationName"] != f"chat {chat_tags.get('gen_ai.request.model')}":
         problems.append(f"chat span is named {chat['operationName']!r}, not 'chat {{model}}'")
-    workflow = span_named(trace, WORKFLOW_SPAN)
     links = [
         ref
-        for ref in workflow["references"]
+        for ref in span_named(trace, root)["references"]
         if ref["refType"] == "FOLLOWS_FROM" and ref["traceID"] != trace["traceID"]
     ]
     if not links:
-        problems.append(f"{WORKFLOW_SPAN} has no link to an ingestion trace")
+        problems.append(f"{root} has no link to an ingestion trace")
     return problems
 
 
-def wait_for(jaeger: str, service: str, operation: str, timeout_s: float) -> dict[str, Any]:
-    """Spans are exported in batches: give the collector a few seconds."""
+def wait_for(
+    jaeger: str, service: str, operations_: tuple[str, ...], timeout_s: float
+) -> dict[str, Any]:
+    """The newest trace with any of `operations_`. Spans are exported in batches: give
+    the collector a few seconds."""
     deadline = time.monotonic() + timeout_s
     while True:
-        trace = find_trace(jaeger, service, operation)
-        if trace is not None or time.monotonic() > deadline:
-            if trace is None:
-                raise SystemExit(f"FAIL no trace for {service} / {operation}")
-            return trace
+        for operation in operations_:
+            trace = find_trace(jaeger, service, operation)
+            if trace is not None:
+                return trace
+        if time.monotonic() > deadline:
+            raise SystemExit(f"FAIL no trace for {service} / {' or '.join(operations_)}")
         time.sleep(3)
 
 
@@ -125,8 +140,8 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, default=60)
     args = parser.parse_args()
 
-    ingestion = wait_for(args.jaeger, "rutaviva-worker", "ingest.embed", args.timeout)
-    query = wait_for(args.jaeger, "rutaviva-api", WORKFLOW_SPAN, args.timeout)
+    ingestion = wait_for(args.jaeger, "rutaviva-worker", ("ingest.embed",), args.timeout)
+    query = wait_for(args.jaeger, "rutaviva-api", ROOT_SPANS, args.timeout)
     problems = check_ingestion(ingestion) + check_query(query)
 
     print(f"upload trace {ingestion['traceID']}: {sorted(services(ingestion))}")

@@ -150,7 +150,7 @@ class AnswerOutcome:
 
 
 @dataclass(frozen=True)
-class _Generation:
+class Generation:
     answer: LLMAnswer | None  # None: no attempt produced a valid answer
     attempts: int
     tokens_in: int
@@ -159,7 +159,7 @@ class _Generation:
 
 
 @dataclass(frozen=True)
-class _Retrieval:
+class Retrieval:
     """The chunks the LLM receives, and how many retrieval found before the judge."""
 
     chunks: list[RetrievedChunk]
@@ -219,122 +219,159 @@ def answer_with_usage(
         },
     ) as answer_span:
         notify("searching")
-        with model_span(
-            OP_EMBEDDINGS, embeddings.model_id, **{EMBEDDING_MODEL: embeddings.model_id}
-        ):
-            try:
-                query_vector = embeddings.embed_query(question)
-            except ProviderError as exc:
-                raise _to_app_error(exc) from exc
-
-        with span(
-            OP_RETRIEVAL,
-            **{GEN_AI_OPERATION_NAME: OP_RETRIEVAL, GEN_AI_RETRIEVAL_TOP_K: settings.retrieval_k},
-        ) as retrieval_span:
-            candidates = search(
-                session,
-                tenant_id=tenant_id,
-                query_vector=query_vector,
-                question=question,
-                embedding_model=embeddings.model_id,
-                settings=settings,
-            )
-            # Ids and scores only (the reranker's score when it ran, else the RRF one).
-            set_attributes(
-                retrieval_span,
-                **{
-                    GEN_AI_RETRIEVAL_DOCUMENTS: retrieved_documents(
-                        [
-                            (
-                                str(c.chunk_id),
-                                c.rerank_score if c.rerank_score is not None else c.score,
-                            )
-                            for c in candidates
-                        ]
-                    )
-                },
-            )
-
+        candidates = retrieve(
+            question, tenant_id=tenant_id, session=session, embeddings=embeddings, settings=settings
+        )
         selection = (judge or KeepAll()).judge(question, candidates)
-        retrieval = _Retrieval(selection.chunks, len(candidates), selection.judged)
-        chunks = retrieval.chunks
-        _link_sources(chunks)
+        retrieval = Retrieval(selection.chunks, len(candidates), selection.judged)
+        usable, warnings = prepare_context(answer_span, retrieval)
+        generation = generate_validated(question, usable, llm, settings, notify) if usable else None
+        return conclude(
+            answer_span, tenant_id, retrieval, usable, warnings, generation, llm, started
+        )
 
-        # Flagged chunks never reach the LLM; `chunks` keeps them for `details`.
-        usable = [chunk for chunk in chunks if not chunk.flagged_injection]
-        flagged = len(chunks) - len(usable)
-        warnings = [WARNING_PROMPT_INJECTION] if flagged else []
-        set_attributes(answer_span, **{PROMPT_INJECTION_FLAGGED: flagged})
 
-        def insufficient(reason: InsufficientReason, generation: _Generation) -> AnswerOutcome:
-            return _insufficient(
-                answer_span, tenant_id, reason, retrieval, generation, llm, started, warnings
-            )
+def retrieve(
+    question: str,
+    *,
+    tenant_id: uuid.UUID,
+    session: Session,
+    embeddings: EmbeddingsProvider,
+    settings: Settings,
+) -> list[RetrievedChunk]:
+    """Embed the question and run the hybrid search (with the reranker), as GenAI
+    `embeddings` and `retrieval` spans. Shared by the workflow and the agent's
+    `search_contracts` tool. Provider errors become 503/504."""
+    with model_span(OP_EMBEDDINGS, embeddings.model_id, **{EMBEDDING_MODEL: embeddings.model_id}):
+        try:
+            query_vector = embeddings.embed_query(question)
+        except ProviderError as exc:
+            raise _to_app_error(exc) from exc
 
-        nothing = _Generation(answer=None, attempts=0, tokens_in=0, tokens_out=0)
-        if not chunks:
-            return insufficient("no_results", nothing)
-        if not usable:
-            return insufficient("all_flagged", nothing)
-
-        generation = _generate_validated(question, usable, llm, settings, notify)
-        answer, attempts = generation.answer, generation.attempts
-        if generation.content_filtered:
-            return insufficient("llm_declared", generation)
-        if answer is None:
-            return insufficient("validation_failed", generation)
-        if answer.insufficient_evidence:
-            return insufficient("llm_declared", generation)
-
-        citations = _enrich_citations(answer, usable)
-        confidence = _combined_confidence(answer.confidence, usable)
-        if sources_disagree(citations):
-            # Degrade, don't pick: both sources stay cited.
-            confidence = min(confidence, "medium", key=_CONFIDENCE_ORDER.index)
-            warnings.append(WARNING_SOURCES_DISAGREE)
+    with span(
+        OP_RETRIEVAL,
+        **{GEN_AI_OPERATION_NAME: OP_RETRIEVAL, GEN_AI_RETRIEVAL_TOP_K: settings.retrieval_k},
+    ) as retrieval_span:
+        candidates = search(
+            session,
+            tenant_id=tenant_id,
+            query_vector=query_vector,
+            question=question,
+            embedding_model=embeddings.model_id,
+            settings=settings,
+        )
+        # Ids and scores only (the reranker's score when it ran, else the RRF one).
         set_attributes(
-            answer_span,
+            retrieval_span,
             **{
-                ANSWER_INSUFFICIENT: False,
-                ANSWER_CONFIDENCE: confidence,
-                ANSWER_CITATIONS: len(citations),
+                GEN_AI_RETRIEVAL_DOCUMENTS: retrieved_documents(
+                    [
+                        (str(c.chunk_id), c.rerank_score if c.rerank_score is not None else c.score)
+                        for c in candidates
+                    ]
+                )
             },
         )
-        logger.info(
-            "query.answered",
-            extra={
-                "tenant_id": str(tenant_id),
-                "chunks": len(chunks),
-                "flagged_chunks": flagged,
-                "citations": len(citations),
-                "attempts": attempts,
-                "confidence": confidence,
-                "warnings": warnings,
-            },
+    return candidates
+
+
+def prepare_context(
+    answer_span: Span, retrieval: Retrieval
+) -> tuple[list[RetrievedChunk], list[str]]:
+    """Link the answer to the ingestion traces of its sources and drop flagged chunks:
+    the chunks the LLM may see, and the warnings so far (ADR-013)."""
+    chunks = retrieval.chunks
+    _link_sources(chunks)
+    # Flagged chunks never reach the LLM; `chunks` keeps them for `details`.
+    usable = [chunk for chunk in chunks if not chunk.flagged_injection]
+    flagged = len(chunks) - len(usable)
+    set_attributes(answer_span, **{PROMPT_INJECTION_FLAGGED: flagged})
+    return usable, [WARNING_PROMPT_INJECTION] if flagged else []
+
+
+def conclude(
+    answer_span: Span,
+    tenant_id: uuid.UUID,
+    retrieval: Retrieval,
+    usable: list[RetrievedChunk],
+    warnings: list[str],
+    generation: Generation | None,
+    llm: LLMProvider,
+    started: float,
+) -> AnswerOutcome:
+    """The response from what was retrieved and what the LLM produced (None when it was
+    not called). Every "not enough information" reason is decided here."""
+    chunks = retrieval.chunks
+    flagged = len(chunks) - len(usable)
+
+    def insufficient(reason: InsufficientReason, generation: Generation) -> AnswerOutcome:
+        return _insufficient(
+            answer_span, tenant_id, reason, retrieval, generation, llm, started, warnings
         )
-        response = QueryResponse(
-            conversation_id=None,
-            answer=answer.answer,
-            status="answered",
-            confidence=confidence,
-            citations=citations,
-            warnings=warnings,
-            details=_details(retrieval, attempts, None, llm, started),
-        )
-        return AnswerOutcome(response, generation.tokens_in, generation.tokens_out)
+
+    nothing = Generation(answer=None, attempts=0, tokens_in=0, tokens_out=0)
+    if not chunks:
+        return insufficient("no_results", nothing)
+    if not usable or generation is None:
+        return insufficient("all_flagged", nothing)
+
+    answer, attempts = generation.answer, generation.attempts
+    if generation.content_filtered:
+        return insufficient("llm_declared", generation)
+    if answer is None:
+        return insufficient("validation_failed", generation)
+    if answer.insufficient_evidence:
+        return insufficient("llm_declared", generation)
+
+    citations = _enrich_citations(answer, usable)
+    confidence = _combined_confidence(answer.confidence, usable)
+    if sources_disagree(citations):
+        # Degrade, don't pick: both sources stay cited.
+        confidence = min(confidence, "medium", key=_CONFIDENCE_ORDER.index)
+        warnings.append(WARNING_SOURCES_DISAGREE)
+    set_attributes(
+        answer_span,
+        **{
+            ANSWER_INSUFFICIENT: False,
+            ANSWER_CONFIDENCE: confidence,
+            ANSWER_CITATIONS: len(citations),
+        },
+    )
+    logger.info(
+        "query.answered",
+        extra={
+            "tenant_id": str(tenant_id),
+            "chunks": len(chunks),
+            "flagged_chunks": flagged,
+            "citations": len(citations),
+            "attempts": attempts,
+            "confidence": confidence,
+            "warnings": warnings,
+        },
+    )
+    response = QueryResponse(
+        conversation_id=None,
+        answer=answer.answer,
+        status="answered",
+        confidence=confidence,
+        citations=citations,
+        warnings=warnings,
+        details=_details(retrieval, attempts, None, llm, started),
+    )
+    return AnswerOutcome(response, generation.tokens_in, generation.tokens_out)
 
 
 def _no_phase(phase: str) -> None:
     pass
 
 
-def _generate_validated(
+def generate_validated(
     question: str,
     chunks: list[RetrievedChunk],
     llm: LLMProvider,
     settings: Settings,
     notify: PhaseCallback,
-) -> _Generation:
+) -> Generation:
     """Call the LLM until its output validates. Returns the answer (None if no attempt
     validated), the attempts made and the tokens used. Raises `GatewayTimeout` /
     `ServiceUnavailable` when the provider keeps failing."""
@@ -390,7 +427,7 @@ def _generate_validated(
                 # Not retried: the same question and documents are blocked again.
                 set_attributes(llm_span, **{LLM_CONTENT_FILTERED: True})
                 logger.warning("llm.content_filtered", extra={"attempt": attempt})
-                return _Generation(None, attempt, tokens_in, tokens_out, content_filtered=True)
+                return Generation(None, attempt, tokens_in, tokens_out, content_filtered=True)
 
             tokens_in += result.input_tokens
             tokens_out += result.output_tokens
@@ -410,11 +447,11 @@ def _generate_validated(
                 },
             )
         if isinstance(outcome, ValidatedAnswer):
-            return _Generation(outcome.answer, attempt, tokens_in, tokens_out)
+            return Generation(outcome.answer, attempt, tokens_in, tokens_out)
         logger.warning("llm.invalid_output", extra={"attempt": attempt, "reason": outcome.reason})
         feedback = outcome.detail
 
-    return _Generation(None, max_attempts, tokens_in, tokens_out)
+    return Generation(None, max_attempts, tokens_in, tokens_out)
 
 
 def _link_sources(chunks: list[RetrievedChunk]) -> None:
@@ -472,7 +509,7 @@ def _found_by(chunk: RetrievedChunk) -> FoundBy:
 
 
 def _details(
-    retrieval: _Retrieval,
+    retrieval: Retrieval,
     attempts: int,
     reason: InsufficientReason | None,
     llm: LLMProvider,
@@ -509,8 +546,8 @@ def _insufficient(
     answer_span: Span,
     tenant_id: uuid.UUID,
     reason: InsufficientReason,
-    retrieval: _Retrieval,
-    generation: _Generation,
+    retrieval: Retrieval,
+    generation: Generation,
     llm: LLMProvider,
     started: float,
     warnings: list[str],

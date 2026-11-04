@@ -17,7 +17,6 @@ from sqlalchemy.orm import Session
 from app.core.config import Settings
 from app.core.errors import NotFound
 from app.db.models import Chunk, Document
-from app.generation.service import answer_question
 from app.mcp.schemas import (
     WITHHELD_TEXT,
     AskResult,
@@ -143,9 +142,13 @@ def ask(
     llm: LLMProvider,
     judge: RelevanceJudge,
 ) -> AskResult:
-    """The full answer pipeline of `POST /query` (retrieval, relevance judge, LLM,
-    citation validation, guardrails), without a conversation: nothing is stored."""
-    response = answer_question(
+    """The same answer as `POST /query` (in the configured `QUERY_MODE`: the agent or
+    the workflow, with citation validation and guardrails), without a conversation:
+    nothing is stored."""
+    # Imported here: the agent's tools import this module (`get_passage`).
+    from app.agent import answer
+
+    response = answer(
         question,
         tenant_id=tenant_id,
         session=session,
@@ -153,7 +156,7 @@ def ask(
         llm=llm,
         settings=settings,
         judge=judge,
-    )
+    ).response
     return AskResult(
         answer=response.answer,
         status=response.status,

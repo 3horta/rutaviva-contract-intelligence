@@ -17,6 +17,8 @@ them without configuration (ADR-018):
 - `retrieval` (INTERNAL): the hybrid search; ids and scores of what it returned.
 - `chat {model}` (CLIENT): one LLM call; `gen_ai.prompt.name` says which prompt
   template (`answer`, `relevance_judge`, `resolve_follow_up`, ...).
+- `invoke_agent contract_analyst` (INTERNAL): one answer in agent mode (ADR-021), with
+  `execute_tool {tool}` (INTERNAL) for each tool the agent called.
 - `tools/call {tool}` (`execute_tool`): an MCP tool call, emitted by the MCP SDK.
 
 Content attributes the conventions define as opt-in (`gen_ai.input.messages`,
@@ -69,6 +71,10 @@ GEN_AI_RESPONSE_MODEL = "gen_ai.response.model"
 GEN_AI_OUTPUT_TYPE = "gen_ai.output.type"
 GEN_AI_PROMPT_NAME = "gen_ai.prompt.name"
 GEN_AI_WORKFLOW_NAME = "gen_ai.workflow.name"
+GEN_AI_AGENT_NAME = "gen_ai.agent.name"
+GEN_AI_TOOL_NAME = "gen_ai.tool.name"
+GEN_AI_TOOL_TYPE = "gen_ai.tool.type"
+GEN_AI_TOOL_CALL_ID = "gen_ai.tool.call.id"
 GEN_AI_CONVERSATION_ID = "gen_ai.conversation.id"
 GEN_AI_EMBEDDINGS_DIMENSION = "gen_ai.embeddings.dimension.count"
 GEN_AI_RETRIEVAL_TOP_K = "gen_ai.retrieval.top_k"
@@ -93,9 +99,17 @@ OP_CHAT = "chat"
 OP_EMBEDDINGS = "embeddings"
 OP_RETRIEVAL = "retrieval"
 OP_INVOKE_WORKFLOW = "invoke_workflow"
+OP_INVOKE_AGENT = "invoke_agent"
+OP_EXECUTE_TOOL = "execute_tool"
 
 # The answer pipeline, as `gen_ai.workflow.name`.
 WORKFLOW_CONTRACT_QA = "contract_qa"
+# The agent (`QUERY_MODE=auto`, ADR-021), as `gen_ai.agent.name`; its decision policy
+# (`model` or `deterministic`) is `rutaviva.agent.policy`.
+AGENT_CONTRACT_ANALYST = "contract_analyst"
+AGENT_POLICY = "rutaviva.agent.policy"
+AGENT_STEPS = "rutaviva.agent.steps"
+AGENT_STOP_REASON = "rutaviva.agent.stop_reason"
 
 # `gen_ai.provider.name`: Gemini through its AI Studio endpoint is the convention's
 # `gcp.gemini`. The keyless providers are not services, so they get custom values.

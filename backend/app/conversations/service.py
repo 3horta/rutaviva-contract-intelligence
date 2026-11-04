@@ -36,6 +36,7 @@ from dataclasses import dataclass
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.orm import Session
 
+from app.agent import answer
 from app.conversations.resolver import (
     MAX_CONTEXT_TURNS,
     QuestionResolver,
@@ -47,7 +48,7 @@ from app.core.config import Settings
 from app.core.errors import NotFound, Unprocessable
 from app.core.tracing import TENANT_ID, span
 from app.db.models import AnswerStatus, Conversation, Message, MessageRole
-from app.generation.service import AnswerOutcome, PhaseCallback, answer_with_usage
+from app.generation.service import AnswerOutcome, PhaseCallback
 from app.providers.embeddings.base import EmbeddingsProvider
 from app.providers.llm.base import LLMProvider
 from app.retrieval.judge import RelevanceJudge
@@ -167,7 +168,8 @@ def run_turn(
         else:
             resolved = unchanged(question)
 
-        outcome = answer_with_usage(
+        # QUERY_MODE decides: the agent graph (auto) or the fixed workflow (ADR-021).
+        outcome = answer(
             resolved.standalone,
             tenant_id=tenant_id,
             session=session,

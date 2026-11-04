@@ -37,6 +37,10 @@ FakeLLMMode = Literal["ok", "invalid", "invalid_once", "timeout", "empty"]
 # cross_encoder: rerank the fused candidates with a local cross-encoder; none: keep the
 # RRF order (tests, and a switch to turn it off).
 RerankerKind = Literal["cross_encoder", "none"]
+# How a question is answered (ADR-021): `auto` runs the LangGraph agent, where Gemini
+# picks the tools with a real LLM and a deterministic policy reproduces the workflow
+# without a key; `workflow` runs the fixed pipeline directly.
+QueryMode = Literal["auto", "workflow"]
 
 FAKE_EMBEDDING_MODEL = "fake-hash-v1"
 
@@ -79,6 +83,9 @@ class Settings(BaseSettings):
     fake_llm_mode: FakeLLMMode = "ok"
     llm_timeout_s: float = Field(default=20.0, gt=0, le=120)
     llm_max_retries: int = Field(default=2, ge=0, le=5)
+    query_mode: QueryMode = "auto"
+    # Agent budget: model turns before it must have submitted an answer.
+    agent_max_steps: int = Field(default=6, ge=2, le=20)
 
     # Keys (only in .env or Docker secrets, never committed)
     gemini_api_key: SecretStr | None = None

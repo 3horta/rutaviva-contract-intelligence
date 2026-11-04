@@ -74,7 +74,34 @@ def test_old_span_names_fail() -> None:
     trace = _query_trace()
     trace["spans"][0]["operationName"] = "query.answer"
 
-    assert check_traces.check_query(trace) == ["query trace lacks ['invoke_workflow contract_qa']"]
+    assert check_traces.check_query(trace) == [
+        "query trace has neither 'invoke_agent contract_analyst' nor 'invoke_workflow contract_qa'"
+    ]
+
+
+def _agent_trace(with_tool: bool = True) -> dict[str, Any]:
+    trace = _query_trace()
+    root = trace["spans"][0]
+    root["operationName"] = "invoke_agent contract_analyst"
+    root["tags"] = [
+        {"key": "gen_ai.operation.name", "value": "invoke_agent"},
+        {"key": "gen_ai.agent.name", "value": "contract_analyst"},
+    ]
+    if with_tool:
+        trace["spans"].append(
+            _span(
+                "execute_tool search_contracts",
+                **{"gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": "search_contracts"},
+            )
+        )
+    return trace
+
+
+def test_an_agent_trace_passes_with_its_tool_spans() -> None:
+    assert check_traces.check_query(_agent_trace()) == []
+    assert check_traces.check_query(_agent_trace(with_tool=False)) == [
+        "agent trace has no `execute_tool` span"
+    ]
 
 
 def test_answer_chat_span_needs_its_attributes_and_name() -> None:

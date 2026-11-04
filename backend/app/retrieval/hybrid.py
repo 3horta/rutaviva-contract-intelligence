@@ -49,6 +49,9 @@ class RetrievedChunk:
     score: float  # fused RRF score
     vec_rank: int | None  # 1-based rank in the vector branch; None if not found there
     fts_rank: int | None  # 1-based rank in the full-text branch; None if not found there
+    # Where the document's ingestion was traced, for span links from the query trace.
+    ingest_trace_id: str | None = None
+    ingest_span_id: str | None = None
 
     @property
     def found_by_both(self) -> bool:
@@ -104,7 +107,8 @@ fused AS (
     FROM vec
     FULL OUTER JOIN fts ON fts.id = vec.id
 )
-SELECT f.id AS chunk_id, c.document_id, d.filename, c.page, c.content,
+SELECT f.id AS chunk_id, c.document_id, d.filename, d.ingest_trace_id, d.ingest_span_id,
+       c.page, c.content,
        c.flagged_injection, f.score, f.vec_rank, f.fts_rank
 FROM fused f
 JOIN chunks c ON c.id = f.id
@@ -155,6 +159,8 @@ def search(
             score=float(row.score),
             vec_rank=row.vec_rank,
             fts_rank=row.fts_rank,
+            ingest_trace_id=row.ingest_trace_id,
+            ingest_span_id=row.ingest_span_id,
         )
         for row in rows
     ]

@@ -1,6 +1,6 @@
 """API models of the demo sign-in (ADR-016)."""
 
-from typing import Annotated, Literal
+from typing import Annotated
 
 from pydantic import BaseModel, StringConstraints
 
@@ -21,7 +21,8 @@ class DemoTokenRequest(BaseModel):
 
 class DemoTokenResponse(BaseModel):
     access_token: str
-    token_type: Literal["bearer"] = "bearer"
+    # Always "bearer" (RFC 6750). A plain string keeps the generated frontend types simple.
+    token_type: str
     # Seconds until the token expires (`JWT_TTL_HOURS`).
     expires_in: int
     tenant: DemoTenant

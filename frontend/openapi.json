@@ -687,6 +687,73 @@
           }
         }
       }
+    },
+    "/auth/demo/tenants": {
+      "get": {
+        "tags": [
+          "auth (demo)"
+        ],
+        "summary": "List Demo Tenants",
+        "description": "The tenants a demo token can be issued for. Demo mode only (`DEMO_LOGIN`).",
+        "operationId": "list_demo_tenants_auth_demo_tenants_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoTenantList"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/demo/token": {
+      "post": {
+        "tags": [
+          "auth (demo)"
+        ],
+        "summary": "Issue Demo Token",
+        "description": "A token for the tenant, the same one `make token` issues. Demo mode only: this is\nnot authentication.",
+        "operationId": "issue_demo_token_auth_demo_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DemoTokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DemoTokenResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown tenant (Problem Details)"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1041,6 +1108,82 @@
           "message_count"
         ],
         "title": "ConversationSummary"
+      },
+      "DemoTenant": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "label"
+        ],
+        "title": "DemoTenant"
+      },
+      "DemoTenantList": {
+        "properties": {
+          "tenants": {
+            "items": {
+              "$ref": "#/components/schemas/DemoTenant"
+            },
+            "type": "array",
+            "title": "Tenants"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tenants"
+        ],
+        "title": "DemoTenantList"
+      },
+      "DemoTokenRequest": {
+        "properties": {
+          "tenant": {
+            "type": "string",
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Tenant"
+          }
+        },
+        "type": "object",
+        "required": [
+          "tenant"
+        ],
+        "title": "DemoTokenRequest"
+      },
+      "DemoTokenResponse": {
+        "properties": {
+          "access_token": {
+            "type": "string",
+            "title": "Access Token"
+          },
+          "token_type": {
+            "type": "string",
+            "title": "Token Type"
+          },
+          "expires_in": {
+            "type": "integer",
+            "title": "Expires In"
+          },
+          "tenant": {
+            "$ref": "#/components/schemas/DemoTenant"
+          }
+        },
+        "type": "object",
+        "required": [
+          "access_token",
+          "token_type",
+          "expires_in",
+          "tenant"
+        ],
+        "title": "DemoTokenResponse"
       },
       "DocumentList": {
         "properties": {

@@ -129,6 +129,7 @@ def issue_demo_token(
     )
     return DemoTokenResponse(
         access_token=token,
+        token_type="bearer",
         expires_in=settings.jwt_ttl_hours * 3600,
         tenant=DemoTenant(name=tenant.name, label=tenant.label),
     )

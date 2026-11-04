@@ -156,8 +156,8 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - The embedding model is created under a lock, once per process.
   - The extractor is cached per worker process.
   - `OMP_NUM_THREADS`/`MKL_NUM_THREADS` = 2 for the API and 2 for the worker (`API_TORCH_THREADS`, `WORKER_TORCH_THREADS`).
-  - Worker concurrency is 1 (`WORKER_CONCURRENCY`): CPU-bound tasks in parallel only slow each other down.
-- **Rejected:** more worker processes, which oversubscribe the CPU.
+  - Worker concurrency defaults to 1 (`WORKER_CONCURRENCY`), sized for the target machine (4 CPUs, 4 GB): ingestion is CPU-bound (pdfplumber, then BGE on the CPU) and never calls an LLM, and each prefork process loads its own copy of the embedding model, so on that machine a second process would mostly take CPU and memory from the API answering questions.
+- **Rejected for the default:** more worker processes. On a larger host, ingestion scales without code changes: raise `WORKER_CONCURRENCY` (one model per process: budget its RAM) or run more worker replicas. Leases and fenced writes already make concurrent tasks safe. With `EMBEDDINGS_PROVIDER=gemini` embedding waits on the network, and concurrency pays off more.
 - **Warm-up:** traces showed the first request after a restart paying for the model load (190 s for a 43 s turn). The model is now loaded, with one inference, in the API lifespan and in every worker process.
 - **Measured** on the target machine (Docker with 4 CPUs and 4 GB, nothing else running), with the defaults (pdfplumber, BGE, keyless LLM):
   - a 2-page contract went from upload to `ready` in **19 s** (16 s of processing), against several minutes with Docling;

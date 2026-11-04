@@ -101,6 +101,7 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 
 - Upload per tenant returns the id and `pending` at once; type (magic bytes) and size validated; duplicates detected by SHA-256 per tenant.
 - Celery task (Redis broker): extract → chunk by page, with bounding boxes → embed → store. Idempotent and retryable: a lease with attempts and fencing, `acks_late`, and a closed set of failure codes. No document is left stuck in `processing`.
+  Documents are processed one at a time by default; set `WORKER_CONCURRENCY` or add worker replicas to process several in parallel (see DECISIONS.md).
 - Hybrid search: pgvector plus PostgreSQL full text, fused with weighted RRF in one SQL query, always filtered by tenant.
 - Answers validated in three layers (JSON, Pydantic schema, quotes grounded in the chunks), with a retry carrying the error and an explicit "not enough information" otherwise. Timeouts and transient errors have bounded retries.
 - Tenant isolation: a JWT per tenant, a `tenant_id` filter, and forced Row Level Security under a non-owner role.

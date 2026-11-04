@@ -220,8 +220,8 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 ## What is not done
 
 - **OCR:** a scanned PDF fails with `empty_pdf` ("no extractable text").
-- **Reranking:** the cross-encoder is English-only and its effect has not been recalibrated into the keyless answer rule (ADR-015).
-- **Metrics:** no Prometheus/Grafana containers or alert rules; the metrics are exposed by the collector on `:8889` for any Prometheus to scrape (ADR-020).
+- **Reranking, the remaining part:** the cross-encoder is done (ADR-015); not done are a multilingual model (this one is English-only) and recalibrating the keyless answer rule with reranking on.
+- **Metrics, the remaining part:** the metrics are done and exposed by the collector on `:8889` (ADR-020); not done are Prometheus/Grafana containers, dashboards and alert rules.
 - **Traces from the browser:** traces start at the API.
 - **Operations:** a periodic sweep of expired leases (an expired lease is taken over when the task is delivered again), a transactional outbox for enqueuing (a crash between the upload's commit and the enqueue leaves the document `pending`), Docker secrets for provider keys, and a pre-built image in a registry.
 - **Deleting documents:** there is no endpoint to delete a document with its file and chunks.

@@ -86,6 +86,12 @@ jobs:
       - name: Lint
         run: npm run lint
 
+      # schema.d.ts must be what openapi-typescript makes of the committed openapi.json.
+      - name: Generated API types are up to date
+        run: |
+          npm run gen:types
+          git diff --exit-code -- src/api/schema.d.ts
+
       - name: Type check
         run: npm run typecheck
 

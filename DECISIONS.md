@@ -18,6 +18,7 @@ are collected at the end once the related milestones are done.
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
 | [ADR-F04](#adr-f04--a-strict-content-security-policy-for-the-web-app) | A strict Content-Security-Policy for the web app | Accepted |
+| [ADR-F05](#adr-f05--frontend-types-generated-from-a-committed-openapi-document) | Frontend types generated from a committed OpenAPI document | Accepted |
 
 ---
 
@@ -157,3 +158,17 @@ are collected at the end once the related milestones are done.
   - The built `index.html` has no inline `<script>` or `<style>`.
   - Headless Chrome loads the pages with no CSP violations in the console.
   - A full click-through in a scripted browser (viewer, chat stream) was not possible here: the browser container could not reach the npm registry. That check is listed as pending.
+
+## ADR-F05 · Frontend types generated from a committed OpenAPI document
+
+- **Context:** the frontend types were written by hand, so a backend change could only show up at runtime.
+- **Decision:**
+  - The API's OpenAPI document is committed as `frontend/openapi.json`.
+  - `npm run gen:types` (openapi-typescript 7.8.0) turns it into `src/api/schema.d.ts`.
+  - `src/api/types.ts` keeps the names the app uses and derives them from that schema (`DocumentOut = components["schemas"]["DocumentOut"]`, …). A contract change therefore surfaces as type errors where it matters.
+  - Still written by hand: what OpenAPI cannot describe (the SSE events, Problem Details) and one refinement (the bbox is a 4-tuple, the schema says `number[]`).
+- **Why a committed file and not the live `/openapi.json`:**
+  - CI and fresh clones need no running backend, database or ML stack.
+  - Every contract change shows up as a reviewable diff in the PR.
+- **Regenerating:** with the API running, `curl -s http://localhost:8000/openapi.json | python3 -m json.tool --indent 2 > frontend/openapi.json`, then `npm run gen:types` in `frontend/`. Without a running API, the same JSON comes from `create_app().openapi()` in the backend environment (it needs `JWT_SECRET` set).
+- **CI:** the frontend job re-runs `gen:types` and fails if `schema.d.ts` differs from what the committed `openapi.json` produces. It does not check `openapi.json` against the backend code: that needs the backend's Python environment, which is the backend job's (out of this change's scope). That check is listed as debt.

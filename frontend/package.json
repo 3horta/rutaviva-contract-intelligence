@@ -10,7 +10,8 @@
     "preview": "vite preview",
     "lint": "eslint .",
     "typecheck": "tsc -b",
-    "test": "vitest run"
+    "test": "vitest run",
+    "gen:types": "openapi-typescript openapi.json -o src/api/schema.d.ts"
   },
   "dependencies": {
     "@tanstack/react-query": "5.80.7",

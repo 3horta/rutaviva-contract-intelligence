@@ -13,7 +13,7 @@ The keyless answer mode quotes the retrieved sentences most similar to the quest
 
 The split is **by document**, not by question, so no tuned value has seen an evaluation document. Contracts that share a template (the two State of Maine repair agreements, the two State of Missouri fuel card contracts) stay in the same set.
 
-Question kinds: `lexical` (answerable, wording close to the clause), `semantic` (answerable, paraphrased), `unanswerable` (topic absent from every document of the set) and `near_miss` (a topic close to one that is present, but the fact asked for is missing). `absent_terms` lists phrases the verifier confirms appear in no document of the set.
+Question kinds: `lexical` (answerable, wording close to the clause), `semantic` (answerable, paraphrased), `unanswerable` (topic absent from every document of the set) and `near_miss` (a topic close to one that is present, but the fact asked for is missing). `absent_terms` (next to `expect`, so the evaluation harness ignores it) lists phrases the verifier confirms appear in no document of the set.
 
 ## The PDFs are not in the repository
 
@@ -46,4 +46,13 @@ docker run --rm --cpus 3 -e OMP_NUM_THREADS=2 -e MKL_NUM_THREADS=2 \
 
 `--set calibration` compares the decision rules and prints the chosen values; `--set eval` (the held-out run, once) asks every eval question through the answer service with the thresholds of `app/core/similarity.py`. The throwaway tenant is deleted at the end. Embeddings are cached in `var/calibration-cache/` too, so a rerun is quick; the first run takes a while on a shared 4-CPU machine (BGE needs seconds per chunk there). Two PyTorch threads: on the Intel Mac used here, three crashed PyTorch with an illegal instruction on long batches. Results: `results_bge-base-en-v1.5.json` (calibration) and `results_eval_bge-base-en-v1.5.json` (held out); ADR-011 in `DECISIONS.md` sums them up.
 
-The question files use the schema of `sample_data/questions.yaml` (plus the `near_miss` kind and `absent_terms`), so an evaluation harness that runs a questions file against a tenant of the running API can run them too: upload the six `eval` PDFs to the tenant `tenant_eval` and ask `questions_eval_real.yaml`.
+The question files use the schema of `sample_data/questions.yaml` (plus the `near_miss` kind and the verifier-only `absent_terms`), so the evaluation harness runs the held-out set against the running stack. It uploads `<PDFS>/<tenant>/*.pdf`, so put only the six `eval` contracts in a `tenant_eval` folder:
+
+```bash
+mkdir -p var/eval-pdfs/tenant_eval
+for f in sc_tires_statewide_2019 sc_sass_002a mo_wex_fuel_card_2021 mo_fuel_card_2016 \
+         safeway_trucking_terms carver_delivery_terms; do
+  cp var/calibration-contracts/$f.pdf var/eval-pdfs/tenant_eval/
+done
+make eval-real PDFS=var/eval-pdfs
+```

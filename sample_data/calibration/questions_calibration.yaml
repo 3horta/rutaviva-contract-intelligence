@@ -377,9 +377,9 @@ questions:
     kind: unanswerable
     soft: false
     note: "No document covers air transport; all carriage documents are truck, drayage or rail."
+    absent_terms: ["aircraft", "air freight", "air cargo"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["aircraft", "air freight", "air cargo"]
       results_in: {tenant: tenant_calibration}
 
   - id: electronic-logging-devices
@@ -388,9 +388,9 @@ questions:
     kind: unanswerable
     soft: false
     note: "No document mentions ELDs or driver hours-of-service rules."
+    absent_terms: ["electronic logging", "hours of service"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["electronic logging", "hours of service"]
       results_in: {tenant: tenant_calibration}
 
   - id: telematics-gps-tracking
@@ -399,9 +399,9 @@ questions:
     kind: unanswerable
     soft: false
     note: "No document mentions GPS, telematics or real-time tracking."
+    absent_terms: ["telematics", "GPS"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["telematics", "GPS"]
       results_in: {tenant: tenant_calibration}
 
   - id: iso-9001-certification
@@ -410,9 +410,9 @@ questions:
     kind: unanswerable
     soft: false
     note: "No ISO certification requirement anywhere (Maine requires ASE/inspection certifications, which is a different topic)."
+    absent_terms: ["ISO 9001", "quality management"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["ISO 9001", "quality management"]
       results_in: {tenant: tenant_calibration}
 
   - id: forklift-leasing
@@ -421,9 +421,9 @@ questions:
     kind: unanswerable
     soft: false
     note: "No document covers forklifts or equipment leasing."
+    absent_terms: ["forklift"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["forklift"]
       results_in: {tenant: tenant_calibration}
 
   - id: driver-drug-testing
@@ -432,9 +432,9 @@ questions:
     kind: unanswerable
     soft: false
     note: "No drug or alcohol testing clause in any document (Calhoun has E-Verify, Maine has EEO; neither is testing)."
+    absent_terms: ["drug", "alcohol"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["drug", "alcohol"]
       results_in: {tenant: tenant_calibration}
 
   - id: snow-plowing-services
@@ -443,9 +443,9 @@ questions:
     kind: unanswerable
     soft: false
     note: "No document covers snow removal or plowing."
+    absent_terms: ["snow", "plow"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["snow", "plow"]
       results_in: {tenant: tenant_calibration}
 
   - id: volume-rebates
@@ -454,9 +454,9 @@ questions:
     kind: unanswerable
     soft: false
     note: "No rebate, loyalty or volume discount programme in any document."
+    absent_terms: ["rebate", "loyalty", "volume discount"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["rebate", "loyalty", "volume discount"]
       results_in: {tenant: tenant_calibration}
 
   # -------------------------------------------------------------- near_miss
@@ -466,10 +466,10 @@ questions:
     kind: near_miss
     soft: false
     note: "Present: bulk ultra-low sulfur diesel pricing and delivery terms. Absent: gasoline/unleaded in every document."
+    absent_terms: ["gasoline", "unleaded"]
     expect:
       outcome: insufficient_evidence
       answer_lacks: ["$2.8100"]
-      absent_terms: ["gasoline", "unleaded"]
       results_in: {tenant: tenant_calibration}
 
   - id: diesel-minimum-delivery-quantity
@@ -478,9 +478,9 @@ questions:
     kind: near_miss
     soft: false
     note: "Present: delivery within 48 hours, delivery hours, 500,000 committed gallons in total. Absent: a minimum quantity per delivery or order."
+    absent_terms: ["minimum delivery", "minimum order"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["minimum delivery", "minimum order"]
       results_in: {tenant: tenant_calibration}
 
   - id: fedex-early-payment-discount
@@ -489,9 +489,9 @@ questions:
     kind: near_miss
     soft: false
     note: "Present: FedEx payment within 15 days and 12% annual interest on late amounts. Absent: any early or prompt payment discount in any document."
+    absent_terms: ["early payment", "prompt payment"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["early payment", "prompt payment"]
       results_in: {tenant: tenant_calibration}
 
   - id: calhoun-umbrella-insurance
@@ -500,9 +500,9 @@ questions:
     kind: near_miss
     soft: false
     note: "Present: Calhoun minimum limits (CGL $1,000,000, auto $1,000,000, garagekeepers $500,000) and Maine $2,000,000 aggregate. Absent: umbrella / excess liability coverage."
+    absent_terms: ["umbrella", "excess liability"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["umbrella", "excess liability"]
       results_in: {tenant: tenant_calibration}
 
   - id: calhoun-electric-vehicles-in-fleet
@@ -511,9 +511,9 @@ questions:
     kind: near_miss
     soft: false
     note: "Present: Calhoun Attachment A vehicle inventory and 'approximately 180 vehicles'. Absent: any electric or hybrid vehicle."
+    absent_terms: ["electric vehicle", "hybrid"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["electric vehicle", "hybrid"]
       results_in: {tenant: tenant_calibration}
 
   - id: stg-maximum-gross-weight
@@ -522,7 +522,7 @@ questions:
     kind: near_miss
     soft: false
     note: "Present: STG 'Shipment Weights and Sizes' (overweight handling, customer weight info, 96 in / 45 ft oversize). Absent: a numeric gross weight limit."
+    absent_terms: ["80,000", "maximum gross weight"]
     expect:
       outcome: insufficient_evidence
-      absent_terms: ["80,000", "maximum gross weight"]
       results_in: {tenant: tenant_calibration}

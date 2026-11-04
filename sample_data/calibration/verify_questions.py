@@ -111,7 +111,7 @@ def check_set(name: str, manifest: list[dict], pages: dict[str, list[str]]) -> l
         elif outcome == "insufficient_evidence":
             if expect.get("sources"):
                 errors.append(f"{where}: an unanswerable question has no sources")
-            absent = expect.get("absent_terms", [])
+            absent = q.get("absent_terms", [])
             if not absent:
                 errors.append(f"{where}: unanswerable needs absent_terms")
             for term in absent:

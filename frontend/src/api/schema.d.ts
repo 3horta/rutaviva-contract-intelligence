@@ -212,7 +212,7 @@ export interface components {
             /** Attempts */
             attempts: number;
             /** Insufficient Reason */
-            insufficient_reason: ("no_results" | "llm_declared" | "validation_failed") | null;
+            insufficient_reason: ("no_results" | "all_flagged" | "llm_declared" | "validation_failed") | null;
             /** Latency Ms */
             latency_ms: number;
             /** Llm Model */
@@ -226,6 +226,13 @@ export interface components {
              * @default false
              */
             uses_context: boolean;
+            /**
+             * Judged
+             * @default false
+             */
+            judged: boolean;
+            /** Judge Candidates */
+            judge_candidates?: number | null;
         };
         /** Body_upload_document_documents_post */
         Body_upload_document_documents_post: {
@@ -426,6 +433,8 @@ export interface components {
             llm_provider: "fake" | "litellm";
             /** Llm Model */
             llm_model: string | null;
+            /** Llm Fast Model */
+            llm_fast_model: string | null;
             /**
              * Embeddings Provider
              * @enum {string}
@@ -505,7 +514,8 @@ export interface components {
         };
         /**
          * RetrievedChunkOut
-         * @description A chunk the answer was generated from. Ids, page and score only: never content.
+         * @description A chunk the answer was generated from (after the relevance judge, if any). Ids,
+         *     page and score only: never content.
          */
         RetrievedChunkOut: {
             /**
@@ -529,6 +539,11 @@ export interface components {
              * @enum {string}
              */
             found_by: "vector" | "full_text" | "both";
+            /**
+             * Flagged
+             * @default false
+             */
+            flagged: boolean;
         };
         /** StatusCounts */
         StatusCounts: {

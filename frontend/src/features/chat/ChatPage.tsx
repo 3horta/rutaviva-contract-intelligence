@@ -27,8 +27,8 @@ const EXAMPLE_QUESTIONS = [
 export function ChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
-  const conversation = useConversation(conversationId);
   const chat = useChat(conversationId);
+  const conversation = useConversation(conversationId, { enabled: !chat.unsavedConversation });
   const { live, streaming } = chat;
 
   const threadRef = useRef<HTMLDivElement>(null);
@@ -42,6 +42,13 @@ export function ChatPage() {
   const messages = live?.retry && live.state === "streaming" ? stored.slice(0, -2) : stored;
   const lastAnswerIndex = messages.at(-1)?.role === "assistant" ? messages.length - 1 : -1;
   const title = conversation.data?.title || "New chat";
+
+  // Another conversation opens at its end, with nothing left from the previous one.
+  // A layout effect declared first, so it runs before the scroll below.
+  useLayoutEffect(() => {
+    following.current = true;
+    setExportError(null);
+  }, [conversationId]);
 
   // Follows the thread as it grows, unless the user scrolled up to read.
   useLayoutEffect(() => {

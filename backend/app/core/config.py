@@ -63,7 +63,11 @@ class Settings(BaseSettings):
 
     # Providers (default: fake mode)
     llm_provider: LLMProvider = "fake"
+    # Capability routing (LLM_PROVIDER=litellm only, see app/providers/llm/router.py):
+    # LLM_MODEL drafts the answer (quality); LLM_FAST_MODEL resolves follow-ups and judges
+    # retrieved chunks (fast, cheap). Empty LLM_FAST_MODEL = use LLM_MODEL for everything.
     llm_model: str = ""
+    llm_fast_model: str = ""
     embeddings_provider: EmbeddingsProvider = "local"
     # 768 dimensions, trained for retrieval, English, MIT licence. Baked into the image.
     local_embedding_model: str = "BAAI/bge-base-en-v1.5"
@@ -146,13 +150,15 @@ class Settings(BaseSettings):
         if self.llm_provider == "litellm":
             if not self.llm_model:
                 errors.append("LLM_PROVIDER=litellm requires LLM_MODEL (e.g. gemini/<model>)")
-            elif self.llm_model.startswith("gemini/"):
-                if not _has_value(self.gemini_api_key):
-                    errors.append(f"LLM_MODEL={self.llm_model} requires GEMINI_API_KEY")
-            else:
-                errors.append(
-                    f"LLM_MODEL={self.llm_model} is not supported: use the gemini/ prefix"
-                )
+            # The same rule for both models: a gemini/ prefix and the Gemini key.
+            models = [("LLM_MODEL", self.llm_model), ("LLM_FAST_MODEL", self.llm_fast_model)]
+            for name, model in models:
+                if not model:
+                    continue
+                if not model.startswith("gemini/"):
+                    errors.append(f"{name}={model} is not supported: use the gemini/ prefix")
+                elif not _has_value(self.gemini_api_key):
+                    errors.append(f"{name}={model} requires GEMINI_API_KEY")
 
         if self.embeddings_provider == "gemini" and not _has_value(self.gemini_api_key):
             errors.append("EMBEDDINGS_PROVIDER=gemini requires GEMINI_API_KEY")
@@ -160,6 +166,11 @@ class Settings(BaseSettings):
         if errors:
             raise ValueError("Invalid configuration: " + "; ".join(errors))
         return self
+
+    @property
+    def fast_model(self) -> str:
+        """The model for the fast capabilities (resolve, judge)."""
+        return self.llm_fast_model or self.llm_model
 
     @property
     def embedding_model_id(self) -> str:

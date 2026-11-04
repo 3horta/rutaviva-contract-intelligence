@@ -38,6 +38,7 @@ from app.core.errors import (
 )
 from app.db.models import Chunk, Document, DocumentStatus, FailureCode
 from app.db.session import tenant_transaction
+from app.generation.guardrails import detect_injection
 from app.ingestion.chunking import chunk_document
 from app.ingestion.types import ChunkDraft, TextExtractor
 from app.ports import Storage
@@ -259,6 +260,20 @@ def _ingest(
         raise EmptyPDFError("no extractable text")
     attributes[tracing.CHUNKS_COUNT] = len(drafts)
 
+    # Chunks that look like instructions to the assistant (ADR-013): stored like any
+    # other chunk, but never given to the LLM. Only the count is recorded, never the text.
+    flagged = {draft.chunk_index for draft in drafts if detect_injection(draft.content)}
+    tracing.set_attributes(**{tracing.PROMPT_INJECTION_FLAGGED: len(flagged)})
+    if flagged:
+        logger.warning(
+            "document.injection_flagged",
+            extra={
+                "document_id": str(document_id),
+                "tenant_id": str(tenant_id),
+                "chunks": len(flagged),
+            },
+        )
+
     with tracing.span(
         "ingest.embed",
         **attributes,
@@ -279,6 +294,7 @@ def _ingest(
             claim,
             deps,
             drafts=drafts,
+            flagged=flagged,
             embedded=embedded,
             page_count=extracted.page_count,
             processing_ms=processing_ms,
@@ -320,6 +336,7 @@ def _store(
     deps: IngestionDeps,
     *,
     drafts: list[ChunkDraft],
+    flagged: set[int],
     embedded: _Embedded,
     page_count: int,
     processing_ms: int,
@@ -366,6 +383,7 @@ def _store(
                 embedding=vector,
                 page_width=draft.page_width,
                 page_height=draft.page_height,
+                flagged_injection=draft.chunk_index in flagged,
             )
             # Only set when known: assigning None to a JSONB attribute stores the JSON
             # value `null`, not SQL NULL, and the bbox CHECK rejects it.

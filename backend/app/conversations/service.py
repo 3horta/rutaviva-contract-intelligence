@@ -40,6 +40,7 @@ from app.db.models import Conversation, Message, MessageRole
 from app.generation.service import AnswerOutcome, PhaseCallback, answer_with_usage
 from app.providers.embeddings.base import EmbeddingsProvider
 from app.providers.llm.base import LLMProvider
+from app.retrieval.judge import RelevanceJudge
 from app.schemas.conversations import (
     ConversationList,
     ConversationOut,
@@ -128,9 +129,11 @@ def run_turn(
     llm: LLMProvider,
     settings: Settings,
     on_phase: PhaseCallback | None = None,
+    judge: RelevanceJudge | None = None,
 ) -> QueryResponse:
     """Resolve the question, answer it and store the turn (in `session`'s transaction:
-    the caller commits). Provider errors propagate and nothing is stored."""
+    the caller commits). Provider errors propagate and nothing is stored. `judge` is
+    None in keyless mode (see `app/retrieval/judge.py`)."""
     with span("conversation.turn", **{TENANT_ID: str(tenant_id)}):
         if plan.context:
             if on_phase:
@@ -147,6 +150,7 @@ def run_turn(
             llm=llm,
             settings=settings,
             on_phase=on_phase,
+            judge=judge,
         )
         return _save_turn(session, tenant_id, plan, resolved, outcome)
 

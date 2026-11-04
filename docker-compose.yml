@@ -25,6 +25,9 @@ x-backend-env: &backend-env
 # tags point to the same image.
 x-backend-build: &backend-build
   context: ./backend
+  args:
+    # Docling is optional (TEXT_EXTRACTOR=docling); its models add size and build time.
+    WITH_DOCLING_MODELS: ${WITH_DOCLING_MODELS:-false}
 
 x-backend-env-file: &backend-env-file
   - path: .env

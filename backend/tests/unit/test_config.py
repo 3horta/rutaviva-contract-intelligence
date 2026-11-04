@@ -44,6 +44,24 @@ def test_tests_use_the_simulated_embedder(make_settings) -> None:
             {"LLM_PROVIDER": "litellm", "LLM_MODEL": "openai/gpt", "GEMINI_API_KEY": "x"},
             "use the gemini/ prefix",
         ),
+        (
+            {
+                "LLM_PROVIDER": "litellm",
+                "LLM_MODEL": "gemini/gemini-3.5-flash",
+                "LLM_FAST_MODEL": "openai/gpt-mini",
+                "GEMINI_API_KEY": "x",
+            },
+            "LLM_FAST_MODEL=openai/gpt-mini is not supported: use the gemini/ prefix",
+        ),
+        (
+            # The fast model alone does not make a real LLM: LLM_MODEL is still required.
+            {"LLM_PROVIDER": "litellm", "LLM_FAST_MODEL": "gemini/x", "GEMINI_API_KEY": "x"},
+            "LLM_PROVIDER=litellm requires LLM_MODEL",
+        ),
+        (
+            {"LLM_PROVIDER": "litellm", "LLM_MODEL": "gemini/a", "LLM_FAST_MODEL": "gemini/b"},
+            "LLM_FAST_MODEL=gemini/b requires GEMINI_API_KEY",
+        ),
         ({"EMBEDDING_DIM": "1536"}, "does not match the schema"),
         (
             # The fake LLM has no calibrated thresholds for Gemini embeddings.
@@ -77,6 +95,12 @@ def test_real_providers_with_key(make_settings) -> None:
     assert s.embedding_model_id == "gemini-embedding-001@768"
     assert s.gemini_api_key is not None
     assert s.gemini_api_key.get_secret_value() == "test-key"
+
+
+def test_fast_model_defaults_to_llm_model(make_settings) -> None:
+    common = {"LLM_PROVIDER": "litellm", "LLM_MODEL": "gemini/a", "GEMINI_API_KEY": "k"}
+    assert make_settings(**common).fast_model == "gemini/a"
+    assert make_settings(**common, LLM_FAST_MODEL="gemini/b").fast_model == "gemini/b"
 
 
 def test_key_is_not_shown_when_printing_settings(make_settings) -> None:

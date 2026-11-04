@@ -9,7 +9,7 @@ import { ErrorAlert, Spinner } from "../../components/ui/Feedback";
 import { copyText } from "../../lib/clipboard";
 import { AnswerDetailsView } from "./AnswerDetailsView";
 import { Markdown } from "./Markdown";
-import { CONFIDENCE, PHASE_LABELS, PHASE_PROGRESS } from "./phases";
+import { CONFIDENCE, PHASE_LABELS, PHASE_PROGRESS, warningLabel } from "./phases";
 import styles from "./Message.module.css";
 
 export function UserMessage({ content }: { content: string }) {
@@ -98,7 +98,7 @@ export function AssistantMessage({ message, onRetry, locked }: AssistantMessageP
           {message.warnings.map((warning) => (
             <li key={warning}>
               <AlertTriangle size={14} aria-hidden="true" />
-              {warning}
+              {warningLabel(warning)}
             </li>
           ))}
         </ul>

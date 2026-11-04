@@ -18,11 +18,18 @@ are collected at the end once the related milestones are done.
 | [ADR-009](#adr-009--cpu-inference-load-models-once-bound-the-threads) | CPU inference: load models once, bound the threads | Accepted |
 | [ADR-010](#adr-010--chat-backend-streamed-phases-persisted-turns-resolved-follow-ups) | Chat backend: streamed phases, persisted turns, resolved follow-ups | Accepted |
 | [ADR-011](#adr-011--keyless-answers-a-calibrated-not-enough-information-rule) | Keyless answers: a calibrated "not enough information" rule | Accepted |
+| [ADR-012](#adr-012--interchangeable-providers-keyless-by-default-litellm-with-a-key) | Interchangeable providers: keyless by default, LiteLLM with a key | Accepted |
+| [ADR-013](#adr-013--untrusted-content-flag-exclude-and-warn-disagreeing-sources-degrade-confidence) | Untrusted content: flag, exclude and warn; disagreeing sources degrade confidence | Accepted |
+| [ADR-014](#adr-014--quality-by-behaviour-an-evaluation-harness-over-a-small-question-set) | Quality by behaviour: an evaluation harness over a small question set | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
 | [ADR-F04](#adr-f04--a-strict-content-security-policy-for-the-web-app) | A strict Content-Security-Policy for the web app | Accepted |
 | [ADR-F05](#adr-f05--frontend-types-generated-from-a-committed-openapi-document) | Frontend types generated from a committed OpenAPI document | Accepted |
+| [ADR-F06](#adr-f06--whole-app-tests-over-the-mock-api) | Whole-app tests over the mock API | Accepted |
+| [ADR-F07](#adr-f07--accessibility-checked-by-tests-contrast-checked-on-the-tokens) | Accessibility checked by tests; contrast checked on the tokens | Accepted |
+| [ADR-F08](#adr-f08--frontend-code-review-what-was-fixed-what-is-debt) | Frontend code review: what was fixed, what is debt | Accepted |
+| [ADR-F09](#adr-f09--pages-load-as-separate-chunks) | Pages load as separate chunks | Accepted |
 
 ---
 
@@ -204,6 +211,69 @@ are collected at the end once the related milestones are done.
   - Reproducing needs the PDFs, which are not in the repository: download them from the `source_url`s of the manifest (`sample_data/calibration/README.md`).
 - **Verified by:** `sample_data/calibration/results_bge-base-en-v1.5.json` (every rule, the score distributions and the per-question numbers, with no document text), `results_eval_bge-base-en-v1.5.json`, and `tests/unit/test_config.py` (the default configuration starts).
 
+## ADR-012 · Interchangeable providers: keyless by default, LiteLLM with a key
+
+- **Context:** the keyless setup (fake LLM, local embeddings) must be swappable for a real LLM by configuration only, with no code path that only works in one of them.
+- **Decision:**
+  - **Adapters through LiteLLM** (`providers/llm/litellm_provider.py`, `providers/embeddings/gemini.py`), imported only when configured: keyless mode never imports LiteLLM (tested in a fresh process). `litellm==1.106.6` moved from the spike group to the main dependencies.
+  - **Router by capability** (`providers/llm/router.py`): `answer` → `LLM_MODEL` (quality); `resolve` (follow-ups) and `judge` (relevance) → `LLM_FAST_MODEL`, which defaults to `LLM_MODEL`. Both need the `gemini/` prefix and `GEMINI_API_KEY`, or startup fails.
+  - **Relevance judge, only with a real LLM** (`retrieval/judge.py`): between retrieval and drafting, the fast model gets the question and the candidate chunks (delimited as data, clipped) and returns the ids that are relevant; the kept ones stay in retrieval order. On failure, timeout, garbage or an empty selection, every chunk is kept (`retrieval.judge_failed` / `retrieval.judge_kept_all`): the judge can narrow the context, never empty it or fail a query. In keyless mode there is no judge: the extractive fake LLM already ranks sentences by similarity, and a rule would be a weaker copy of retrieval. `details.judged` / `details.judge_candidates` say whether it ran.
+  - **Error mapping** (`providers/litellm_support.py`): timeout → `ProviderTimeoutError`; 429, 5xx, connection → `TransientProviderError` with `Retry-After` when sent; other 4xx → `PermanentProviderError`. Provider messages are dropped (they can echo the request). LiteLLM's own retries are off: the answer service and the worker decide.
+  - **Content filter** (`ContentFilteredError`, from LiteLLM's `ContentPolicyViolationError` or finish reason `content_filter`): an outcome, not an outage. The answer is "insufficient evidence" with the warning `content_filtered`, never retried and never a 503.
+  - **No secrets or content in logs:** LiteLLM's debug info, verbose and message logging are off and its loggers stay at WARNING; prompts and answers are never logged.
+  - **Gemini embeddings:** `RETRIEVAL_DOCUMENT` for chunks and `RETRIEVAL_QUERY` for questions, 768 dimensions, every vector L2-normalised (Gemini's truncated vectors are not unit length), batches of `EMBEDDING_BATCH_SIZE` (at most 100). Gemini reports no token usage for embeddings, so tokens are estimated and flagged.
+- **Switching to Gemini:** `LLM_PROVIDER=litellm`, `LLM_MODEL=gemini/<model>`, optionally `LLM_FAST_MODEL=gemini/<cheaper model>`, `GEMINI_API_KEY=…`; for embeddings also `EMBEDDINGS_PROVIDER=gemini`. Changing the embedding model requires reindexing: documents store their `embedding_model` and search only compares vectors of the same model.
+- **Rejected:**
+  - A judge in keyless mode: no model to judge with, and the identity is honest.
+  - Dropping everything when the judge keeps nothing: the drafting model, which sees the evidence, is the one that declares "insufficient evidence".
+  - Retrying content-filtered answers: the same input is blocked again.
+- **Verified by:** `tests/unit/test_litellm_provider.py`, `test_gemini_embeddings.py`, `test_judge.py`, `test_llm_router.py`, `test_answer_service.py` (content filter, judge), `test_config.py`, `test_health.py`, against a scripted `litellm` module (no network). The mapping was also checked once against LiteLLM's real exception classes. `tests/contract/test_provider_contract.py` runs the same contract on the keyless and the real providers; the real ones are marked `live` and skipped without `GEMINI_API_KEY` in the environment.
+
+## ADR-013 · Untrusted content: flag, exclude and warn; disagreeing sources degrade confidence
+
+- **Context:** contracts come from suppliers, so their text is untrusted. The sample fuel agreement hides, in its Exhibit C, an instruction to the assistant to claim there is no minimum volume. The tire agreement and its SLA exhibit state different delivery terms and penalties, and each claims to prevail.
+- **Decision:**
+  - **Document content is data, never instructions.** The prompt already delimits each chunk and says so (rule 3); the validator only accepts citations of chunks that were given to the model, quoted verbatim.
+  - **Suspicious instructions: index, flag, exclude, warn.**
+    - At indexing, `guardrails.detect_injection` runs on every chunk before the store transaction and sets `chunks.flagged_injection`. The document is still indexed: the rest of it is legitimate data. The ingest span gets `prompt_injection.flagged` (a count) and the log `document.injection_flagged` (a count, never the text).
+    - At query time, flagged chunks are removed from the LLM context, for every provider. They stay in `details.retrieved` with `flagged: true`. The answer carries the warning `prompt_injection`, and the answer span gets `prompt_injection.flagged`. If only flagged chunks were retrieved, the answer is insufficient evidence (`insufficient_reason: all_flagged`), still with the warning.
+  - **Disagreeing sources: degrade, don't pick.** When the quotes of an answer come from at least two documents and give different values for the same kind of quantity, both citations stay, confidence is capped at `medium` and the answer carries `sources_disagree`.
+  - **`warnings` are machine codes** (`prompt_injection`, `sources_disagree`). `WARNING_LABELS` in `app/schemas/query.py` holds the text the UI shows.
+- **The detector:** fourteen named regular expressions, in English and Spanish, over text with case, accents and whitespace normalised. Examples: "ignore/disregard previous instructions", "you are now", "you must act as", a `System:`/`Assistant:` role marker at the start of a sentence, "reveal your prompt", "do not tell the user", "respond only with", "ignora las instrucciones", "eres ahora", "responde únicamente". Each pattern needs the "addressed to the assistant" part, so "Supplier shall follow Rutaviva's written instructions" and "act as an independent contractor" are not flagged. Across the eight sample contracts it flags only Exhibit C.
+- **Limits, said plainly:**
+  - It is pattern-based, so it can be bypassed: paraphrases, other languages, an instruction split across two chunks, text in images. It is one layer of defence in depth, not a guarantee; the delimiting in the prompt and the citation validation still apply to whatever it misses.
+  - It flags whole chunks. A legitimate clause in the same chunk as the injection is also excluded (in the sample, clause C.3 of Exhibit C).
+  - Documents indexed before this change are not reprocessed: their chunks stay unflagged until they are reindexed.
+  - The disagreement rule compares numbers, not meaning. It compares the sets of percentages, of "N hours/days" and of amounts of money in the quotes of each document. It misses contradictions in words ("monthly" vs "weekly"). It also fires when two contracts legitimately have different values for different things, which only costs confidence and adds a warning; it never changes the answer.
+- **Rejected:**
+  - Rejecting the whole document: the legitimate clauses (the 180,000-gallon minimum) live in it.
+  - An LLM classifier for injections: it costs a call per chunk, it is not deterministic, and it is itself injectable.
+  - Picking one source when they disagree (for example, "the exhibit prevails"): that is a legal judgement for a person.
+- **Verified by:** `tests/unit/test_guardrails.py` (12 injection variants detected, 8 ordinary clauses not, every sample contract scanned, the tire agreement vs SLA exhibit sentences and negative cases), `tests/unit/test_answer_service.py` (flagged chunk excluded with a warning, only flagged → insufficient, disagreeing sources → `medium` with a warning) and `tests/integration/test_injection.py` (the real fuel PDF is ingested with pdfplumber and Exhibit C is flagged; `/query` answers 180,000 gallons from page 1, never quotes the injection and warns `prompt_injection`).
+
+## ADR-014 · Quality by behaviour: an evaluation harness over a small question set
+
+- **Context:** there is no large labelled set to compute retrieval or answer scores with, and a score over 21 questions would mostly measure noise. The question is still "how do we know it answers well?".
+- **Decision:** check **behaviour**, not scores. `backend/scripts/eval.py` runs the question set (`sample_data/questions.yaml`) against the **running API**, the same path a user takes, and checks what an analyst would check by hand:
+  - **Per case**, from its `expect` block: the outcome (`answered` / `insufficient_evidence`); at least one citation with the expected file and page; the answer contains one of `answer_has_any` and none of `answer_lacks` (case-insensitive); a confidence cap (`max_confidence`, for contradictions); required `warnings` (`prompt_injection`).
+  - **Leak check** (`results_in.tenant`): every cited document and every retrieved chunk in `details.retrieved` must be one of the asking tenant's documents, as listed by its own `GET /documents`. A chunk of another tenant fails the case even if it was only retrieved and never cited.
+  - **Global checks on every case:** a non-empty answer; no internals in the answer text (UUIDs, tracebacks, SQL, `<document>` context tags); for answered cases, every number in the answer appears in the question or in a cited quote, after normalising the format ("180,000" = "180000", "1,5" = "1.5", "75.00" = "75"). That is a cheap hallucination check: the quotes were already verified against the chunks by the API.
+  - **Stability:** `--repeat N` asks each case N times, each in a fresh conversation. Mixed results are `FLAKY`.
+  - **Status and exit code:** `PASS`, `FAIL`, `WARN` (a failed `soft: true` case: the semantic paraphrases) or `FLAKY`. The run exits 1 if a non-soft case is `FAIL` or `FLAKY`: a hard case must be right and stable. Soft cases never fail the run.
+  - **Setup:** for each tenant in the file the script signs a token with the API's key (`issue_token`, tenant looked up in the database), uploads that tenant's PDFs (`--pdfs`, one subfolder per tenant; a duplicate returns the existing document), and waits until each document is `ready` or `failed` (failed ones are reported, not counted as case failures). `--create-tenants` adds missing tenants with the owner URL, for a held-out set such as `tenant_eval`.
+- **Layout:** the checks are pure functions in `scripts/eval_lib.py`; the HTTP calls go through a four-method `Api` protocol, implemented with httpx in `eval.py` and with a dict in the tests. The harness stays in `scripts/` and not in `app/`: it is tooling, never imported by the API or the worker, and `make eval` can mount the current `scripts/` into the existing image, so editing the harness or the questions needs no rebuild.
+- **How to run:** with the stack up, `make eval` (all cases) or `make eval ARGS="--only carrier-detention-rate --repeat 3"`. Other flags: `--kinds lexical,isolation`, `--json out.json`, `--no-upload`, `--ingest-timeout`. The held-out real-contract set: `make eval-real PDFS=/path/to/pdfs` (questions in `sample_data/calibration/questions_eval_real.yaml`, which may use the extra kinds `near_miss` and `absent_terms`; any kind is accepted). From the host it also runs as `cd backend && uv run python scripts/eval.py`, given `JWT_SECRET` (the default key lives in a Docker volume the host cannot read).
+- **Rejected:**
+  - Scores (recall@k, MRR, LLM-as-judge) over 21 questions: too few cases for a number to mean anything, and a judge adds a second model to trust. The behaviour checks are exact and explain every failure in one line.
+  - Calling the services in-process: it would skip the HTTP layer, the auth, RLS and the worker, which are the parts most likely to break isolation.
+- **Limits:**
+  - The set is small and hand-written; it proves the designed behaviours (isolation, refusal, contradiction, injection), not general quality.
+  - `sources` passes when one expected page is cited; for a contradiction it does not require both sides.
+  - The number check can flag a correct answer that adds a number of its own (a section number not in the quote), and it cannot see a wrong figure that also appears in the quote.
+  - String checks accept any listed variant: a paraphrase that drops the figure fails, a wrong answer that happens to contain one passes.
+  - Uploading again re-creates the sample documents that are meant to fail (a failed document does not block a new upload of the same file).
+- **Verified by:** `tests/unit/test_eval_lib.py`: each check passing and failing, number normalisation, the leak check on citations and on retrieved-only chunks, soft to `WARN`, repeat to `FLAKY`, the exit code, document polling with a timeout, and loading the sample set.
+
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 
 - **Context:** answers arrive as Server-Sent Events from `POST /query/stream`. `EventSource` can only GET and cannot send the `Authorization` header.
@@ -262,3 +332,78 @@ are collected at the end once the related milestones are done.
   - Every contract change shows up as a reviewable diff in the PR.
 - **Regenerating:** with the API running, `curl -s http://localhost:8000/openapi.json | python3 -m json.tool --indent 2 > frontend/openapi.json`, then `npm run gen:types` in `frontend/`. Without a running API, the same JSON comes from `create_app().openapi()` in the backend environment (it needs `JWT_SECRET` set).
 - **CI:** the frontend job re-runs `gen:types` and fails if `schema.d.ts` differs from what the committed `openapi.json` produces. It does not check `openapi.json` against the backend code: that needs the backend's Python environment, which is the backend job's (out of this change's scope). That check is listed as debt.
+
+## ADR-F06 · Whole-app tests over the mock API
+
+- **Decision:** `src/test/renderApp.tsx` renders the real routes with a memory router, a fresh `QueryClient` (no retries, bound to the same tenant-switch clearing as the app's), the demo tokens and the in-memory mock API with its latency off (`installMockApi({ instant: true })`). The tests drive the app the way a user does (labels, roles, text) and assert on what is shown and on the URL.
+- **Covered:**
+  - sign-in and 401;
+  - the documents table's search and filter in the URL;
+  - upload (a non-PDF never reaches the API; a PDF is sent);
+  - tenant switch (no documents nor conversations of the other tenant);
+  - chat: answer, badge, citation navigation, insufficient evidence, warning, Stop, 504 with Retry;
+  - Markdown never producing HTML elements;
+  - a route that throws.
+- **Rejected:** mocking `fetch` per test or MSW. The mock API already speaks the contract at the fetch level and is what the demo runs on, so the tests exercise the same code. MSW would also have been a new dependency.
+- **Bugs these tests found:**
+  - A new conversation was fetched before the backend had stored it: a 404 replaced the answer in progress. Fixed: the query waits for the first turn.
+  - The mock upload used `Blob.arrayBuffer`, which jsdom lacks. It now reads files with `FileReader`.
+- **Cost:** the tests wait up to 10 s per query (`asyncUtilTimeout`) and 30 s per test. That is generous, but a full-app test in jsdom on a slow CI runner needs it.
+
+## ADR-F07 · Accessibility checked by tests; contrast checked on the tokens
+
+- **Decision:**
+  - `src/test/a11y.test.tsx` runs axe (jest-axe 10.0.0) on the dashboard, documents, document detail and an answered chat, once their data is on screen. It fails on any serious or critical violation.
+  - axe cannot measure contrast in jsdom (there is no layout), so `src/styles/contrast.test.ts` computes the WCAG ratio of every text/background token pair the components use, in both themes. Translucent dark-theme backgrounds are composited over the surface first. Every pair must reach 4.5:1.
+- **Found and fixed:** in the light theme, `--rv-muted` (3.8–4.2:1), `--rv-success` on its soft background (4.46:1) and `--rv-warning` (3.9–4.1:1) were below AA. Each was darkened by the smallest step that passes: `#636d7f`, `#167d48`, `#a5590e`. The dark theme already passed.
+- **Responsive:**
+  - Reviewed in the CSS: every page collapses to one column (dashboard and detail below 1000 px, chat below 900 px with the history folded behind a "History" button). Wide tables scroll inside their own wrapper, so the page itself never scrolls sideways.
+  - Not verified with screenshots at 375 and 1280 px: no automated browser could run in this environment. That check is pending.
+- **States:** every page uses the same `LoadingState`, `StateBlock` (empty, not found) and `ErrorAlert` (with the trace id) pieces. "No permission" is the shell's token screens (401). Another tenant's document or conversation is a 404, shown as "not found", exactly like a missing one.
+
+## ADR-F08 · Frontend code review: what was fixed, what is debt
+
+- **Reviewed:** all of `frontend/src`, looking for:
+  - effects without cleanup;
+  - requests without an `AbortSignal`;
+  - races on tenant or page switches;
+  - unstable keys;
+  - duplicated state;
+  - `any` or needless casts;
+  - components over ~200 lines.
+- **Fixed (real bugs):**
+  - A new conversation was fetched before the backend had stored it, so a 404 replaced the answer in progress (found by the Task 5 tests; separate commit).
+  - Opening another conversation after scrolling up kept "not following", so it did not open at its end. An export error also stayed on screen across conversations.
+  - A comment in `useTheme` still pointed to the inline script that the CSP work moved to `public/theme-init.js`.
+- **Checked and fine:**
+  - Every effect cleans up (timers, `ResizeObserver`, PDF.js tasks, blob URLs, the upload queue, the chat stream).
+  - Every query passes React Query's `signal`.
+  - Tenant switches clear the cache and remount the pages, so in-flight answers for the old tenant land in removed queries. A 401 only flags the token it was sent with.
+  - The casts are `noUncheckedIndexedAccess` narrowing or parsed JSON. There is no `any`.
+  - The index keys in `Markdown` are over text that is parsed again on every render and never reordered.
+- **Debt (not changed: it works, and a change would be a refactor):**
+  - `ChatPage` (~220 lines) and `ConversationSidebar` (~220 lines) are past the 200-line mark. The logic is already out of the view (`useChat`, `queries.ts`, `grouping.ts`). A `ConversationItem` component would be the next split.
+  - `DocumentDetailPage` (~250 lines) mixes the KPIs and the viewer frame; it could split along those lines.
+  - SSE payloads are cast to their type, not validated. They come from our own API, and a schema validator would be a new dependency.
+  - "Open PDF" is not aborted when leaving the page mid-download. The result simply goes into the cache.
+  - Rename and delete are mutations without an abort signal, which is normal for writes.
+  - `openapi.json` is not checked against the backend code in CI (see ADR-F05).
+  - The mock's `delay` adds an abort listener it never removes (mock only).
+
+## ADR-F09 · Pages load as separate chunks
+
+- **Decision:**
+  - The four pages (dashboard, documents, document detail, chat) use React Router's `lazy` route property, so each one is its own chunk, fetched the first time its route is visited.
+  - The shell (sidebar, top bar, token screens), the route error page and the not-found page stay in the main bundle.
+  - A chunk that fails to load is a route error, shown inside the shell with "Reload".
+  - PDF.js (the viewer) and jsPDF (the export) were already lazy and stay so.
+- **Why `lazy` and not `React.lazy` + `Suspense`:** the router fetches the chunk before it renders the route. That needs no `Suspense` boundary per page and no blank fallback between pages.
+- **Bundle (production build, `vite build`):**
+
+  | | Main JS | Main JS gzip | Main CSS |
+  |---|---|---|---|
+  | Before | 339.56 kB | 107.53 kB | 34.20 kB |
+  | After | 277.01 kB | 89.41 kB (−17 %) | 13.17 kB |
+
+  - The pages are small: dashboard 7.4 kB, documents 8.2 kB, detail 10.6 kB, chat 34.8 kB.
+  - What remains in the main chunk is mostly React, React Router and TanStack Query.

@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 
 export type ThemeMode = "light" | "dark";
 
-/** Keep in sync with the inline script in index.html, which applies it before render. */
+/** Keep in sync with public/theme-init.js, which applies it before the first paint. */
 const STORAGE_KEY = "rutaviva.theme";
 
 function currentMode(): ThemeMode {

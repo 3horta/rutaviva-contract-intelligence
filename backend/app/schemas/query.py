@@ -14,6 +14,19 @@ INSUFFICIENT_EVIDENCE_MESSAGE = (
     "There is not enough information in your documents to answer this question."
 )
 
+# Codes that can appear in `QueryResponse.warnings` (machine codes; the UI shows the
+# label). See ADR-013.
+WARNING_PROMPT_INJECTION = "prompt_injection"
+WARNING_SOURCES_DISAGREE = "sources_disagree"
+WARNING_LABELS: dict[str, str] = {
+    WARNING_PROMPT_INJECTION: (
+        "A passage that looked like instructions to the assistant was ignored."
+    ),
+    WARNING_SOURCES_DISAGREE: (
+        "The cited documents give different values; check which one applies."
+    ),
+}
+
 
 # --- What the LLM must return (validated; invalid output is retried) --------------------
 
@@ -58,11 +71,13 @@ class Citation(BaseModel):
 
 
 FoundBy = Literal["vector", "full_text", "both"]
-InsufficientReason = Literal["no_results", "llm_declared", "validation_failed"]
+# `all_flagged`: every retrieved chunk was flagged as prompt injection and excluded.
+InsufficientReason = Literal["no_results", "all_flagged", "llm_declared", "validation_failed"]
 
 
 class RetrievedChunkOut(BaseModel):
-    """A chunk the answer was generated from. Ids, page and score only: never content."""
+    """A chunk the answer was generated from (after the relevance judge, if any). Ids,
+    page and score only: never content."""
 
     document_id: uuid.UUID
     document_filename: str
@@ -70,6 +85,8 @@ class RetrievedChunkOut(BaseModel):
     chunk_id: uuid.UUID
     score: float  # fused RRF score (only comparable within the same answer)
     found_by: FoundBy
+    # Flagged as prompt injection at indexing: listed here, but not given to the LLM.
+    flagged: bool = False
 
 
 class AnswerDetails(BaseModel):
@@ -90,6 +107,11 @@ class AnswerDetails(BaseModel):
     # context; null when the question was used as typed.
     standalone_question: str | None = None
     uses_context: bool = False
+    # Relevance judge (real LLM only): True when a model filtered the retrieved chunks,
+    # and then how many chunks retrieval found before it (`retrieved` lists the ones
+    # kept). False/null in keyless mode and when the judge failed or kept nothing.
+    judged: bool = False
+    judge_candidates: int | None = None
 
 
 class QueryResponse(BaseModel):
@@ -98,6 +120,7 @@ class QueryResponse(BaseModel):
     status: AnswerStatusOut
     confidence: Confidence
     citations: list[Citation]
+    # Machine codes (`WARNING_LABELS` has the text to show), e.g. "prompt_injection".
     warnings: list[str]
     # The stored assistant message; null only when the answer was not persisted.
     message_id: uuid.UUID | None = None

@@ -7,6 +7,8 @@ Two families:
   closed `failure_code`. The task never retries these.
 - `TransientProviderError` / `PermanentProviderError`: what provider adapters (embeddings,
   LLM) raise, so callers decide "retry" vs "give up" without knowing the provider.
+  `ContentFilteredError` is the third outcome: the provider answered, but its safety
+  filter blocked the prompt or the reply.
 """
 
 from app.db.models import FailureCode
@@ -94,3 +96,13 @@ class ProviderTimeoutError(TransientProviderError):
 
 class PermanentProviderError(ProviderError):
     """4xx other than 429, malformed responses, wrong dimension: retrying won't help."""
+
+
+class ContentFilteredError(ProviderError):
+    """The provider's safety filter blocked the prompt or the reply (e.g. Gemini's
+    `SAFETY` finish reason, mapped by LiteLLM to `content_filter`).
+
+    Not an outage and not worth retrying: the same input is blocked again. The answer
+    service treats it as "answered": insufficient evidence with a `content_filtered`
+    warning, never a 503.
+    """

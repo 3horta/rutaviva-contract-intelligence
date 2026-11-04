@@ -4,9 +4,10 @@
 # (Docling extraction + chunk embeddings) need PyTorch, so a single image keeps the stack
 # simple; Compose only changes the command.
 #
-# Stages: builder (uv + virtualenv) -> models (downloaded at build time) -> runtime.
-# The dependency layer only changes when uv.lock changes; the models layer only when the
-# model list below changes; the code layer is the last and smallest.
+# Stages: builder (uv + virtualenv), embedding-model and docling-models (downloaded at
+# build time), runtime. The embedding model does NOT depend on uv.lock: adding a Python
+# dependency must not download ~440 MB of weights again. Docling's models are optional
+# (pdfplumber is the default extractor): `--build-arg WITH_DOCLING_MODELS=true`.
 
 # --- Builder: virtualenv with uv ----------------------------------------------------------
 FROM python:3.12-slim AS builder
@@ -27,22 +28,28 @@ COPY pyproject.toml uv.lock .python-version ./
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev --no-default-groups --group ml --no-install-project
 
-# --- Models, downloaded at build time ------------------------------------------------------
-# At runtime HF_HUB_OFFLINE=1: a missing model fails loudly instead of being downloaded.
-FROM builder AS models
-
-# Docling: OCR is disabled in the pipeline (scans are out of scope), so only the layout
-# and table-structure models are needed.
-RUN /app/.venv/bin/docling-tools models download layout tableformer -o /opt/models/docling
-
-# Embeddings: BAAI/bge-base-en-v1.5 (768 dims) into a Hugging Face cache, the layout
-# sentence-transformers reads. Only the safetensors weights: the repo also ships the same
-# weights as .bin and ONNX, which would triple the size.
+# --- Embedding model, independent of the app's dependencies -------------------------------
+# BAAI/bge-base-en-v1.5 (768 dims) into a Hugging Face cache, the layout sentence-transformers
+# reads. Only the safetensors weights: the repo also ships the same weights as .bin and
+# ONNX, which would triple the size. huggingface_hub is pinned to the version in uv.lock.
+FROM python:3.12-slim AS embedding-model
+RUN --mount=type=cache,target=/root/.cache/pip pip install "huggingface_hub==1.33.0"
 ENV HF_HOME=/opt/models/hf
-RUN /app/.venv/bin/python -c "\
+RUN python -c "\
 from huggingface_hub import snapshot_download; \
 snapshot_download('BAAI/bge-base-en-v1.5', \
     ignore_patterns=['*.bin', 'onnx/*', 'openvino/*', '*.h5', '*.ot', '*.msgpack'])"
+
+# --- Docling models (optional) ---------------------------------------------------------------
+# Only needed with TEXT_EXTRACTOR=docling. OCR is disabled in the pipeline, so only the
+# layout and table-structure models. Without them the directory is empty and Docling fails
+# loudly at runtime (HF_HUB_OFFLINE=1) instead of downloading.
+FROM builder AS docling-models
+ARG WITH_DOCLING_MODELS=false
+RUN mkdir -p /opt/models/docling \
+    && if [ "$WITH_DOCLING_MODELS" = "true" ]; then \
+         /app/.venv/bin/docling-tools models download layout tableformer -o /opt/models/docling; \
+       fi
 
 # --- Runtime: no uv, no build tools, non-root user -----------------------------------------
 FROM python:3.12-slim AS runtime
@@ -71,7 +78,8 @@ WORKDIR /app
 
 COPY --from=builder --chown=app:app /app/.venv /app/.venv
 # Owned by root, readable by everyone: the app can load the models but not change them.
-COPY --from=models /opt/models /opt/models
+COPY --from=embedding-model /opt/models/hf /opt/models/hf
+COPY --from=docling-models /opt/models/docling /opt/models/docling
 COPY --chown=app:app alembic.ini ./
 COPY --chown=app:app alembic ./alembic
 COPY --chown=app:app scripts ./scripts
@@ -83,7 +91,8 @@ EXPOSE 8000
 
 # Health of the API. The worker and migrate override it in Compose.
 # start-period: the embedding model takes a few seconds to load.
-HEALTHCHECK --interval=15s --timeout=3s --start-period=60s --retries=5 \
+# timeout 10s: on a small machine a busy CPU (an embedding in progress) delays the answer.
+HEALTHCHECK --interval=15s --timeout=10s --start-period=60s --retries=5 \
     CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2)"]
 
 CMD ["uvicorn", "--factory", "app.main:create_app", "--host", "0.0.0.0", "--port", "8000"]

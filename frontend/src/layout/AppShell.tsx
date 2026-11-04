@@ -1,6 +1,7 @@
 import { FileText, LayoutDashboard, Menu, MessageSquareText, Moon, Sun } from "lucide-react";
 import { useState } from "react";
 import { NavLink, Outlet } from "react-router-dom";
+import { DemoModeBadge } from "../auth/DemoSignIn";
 import { TenantSwitcher } from "../auth/TenantSwitcher";
 import { TokenExpired, TokenRequired } from "../auth/TokenScreens";
 import { useAuth } from "../auth/useAuth";
@@ -92,6 +93,7 @@ export function AppShell() {
           />
           <div className={styles.topbarTitle}>Supplier contracts</div>
           <div className={styles.topbarActions}>
+            <DemoModeBadge />
             <TenantSwitcher />
             <button
               type="button"

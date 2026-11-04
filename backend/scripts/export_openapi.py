@@ -16,6 +16,9 @@ from pathlib import Path
 # `create_app` refuses to start without a signing key; the document does not depend on it.
 os.environ.setdefault("JWT_SECRET", "openapi-export-only-not-a-real-signing-key")
 os.environ.setdefault("OTEL_SDK_DISABLED", "true")
+# The committed document describes the default configuration, demo sign-in included
+# (ADR-016), whatever the shell running the export has set.
+os.environ["DEMO_LOGIN"] = "true"
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 

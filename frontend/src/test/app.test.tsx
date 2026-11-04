@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { DEMO_NOTICE } from "../auth/DemoSignIn";
 import { AppShell } from "../layout/AppShell";
 import { RouteErrorPage } from "../layout/RouteErrorPage";
 import { mockFetch } from "../mocks/server";
@@ -12,10 +13,46 @@ afterEach(() => {
 
 const pdf = (name: string) => new File([new Uint8Array(2_048)], name, { type: "application/pdf" });
 
+const problemResponse = (status: number, title: string) =>
+  new Response(JSON.stringify({ type: "about:blank", title, status, detail: title }), {
+    status,
+    headers: { "Content-Type": "application/problem+json" },
+  });
+
+/** The mock API as served with DEMO_LOGIN=false: the demo routes do not exist. */
+const demoLoginOff = (input: string, init?: RequestInit) =>
+  input.includes("/auth/demo/") ? Promise.resolve(problemResponse(404, "Not Found")) : mockFetch(input, init);
+
 describe("signing in", () => {
-  it("asks for a token, and shows the dashboard once one is pasted", async () => {
+  it("signs in with one click per tenant, and to the second tenant from the top bar", async () => {
     renderApp({ signedIn: false });
-    expect(await screen.findByRole("heading", { name: "Sign in with an access token" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
+    // The notice appears once the demo tenants have loaded.
+    expect(await screen.findByText(DEMO_NOTICE)).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sign in as Fleet Procurement" }));
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(await screen.findByTitle(DEMO_NOTICE)).toHaveTextContent("Demo mode");
+
+    // The top bar's "+" dialog offers the same buttons.
+    const dialog = screen.getByRole("dialog", { hidden: true });
+    fireEvent.click(
+      await within(dialog).findByRole("button", {
+        name: "Sign in as Freight & Risk Procurement",
+        hidden: true,
+      }),
+    );
+    const tenant = screen.getByLabelText("Tenant");
+    await waitFor(() => expect(tenant).toHaveValue("tenant_b"));
+    expect(within(tenant).getAllByRole("option").map((o) => o.textContent)).toEqual([
+      "Fleet Procurement",
+      "Freight & Risk Procurement",
+    ]);
+  });
+
+  it("still accepts a pasted token, folded under the advanced option", async () => {
+    renderApp({ signedIn: false });
+    fireEvent.click(await screen.findByText("Use a token (advanced)"));
 
     fireEvent.change(screen.getByLabelText("Access token"), { target: { value: demoTokens()[0] } });
     fireEvent.click(screen.getByRole("button", { name: "Use token" }));
@@ -23,15 +60,41 @@ describe("signing in", () => {
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 
+  it("asks for a token, and shows the dashboard once one is pasted, when demo mode is off", async () => {
+    renderApp({ signedIn: false, fetch: demoLoginOff });
+    expect(await screen.findByRole("heading", { name: "Sign in with an access token" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^Sign in as/ })).not.toBeInTheDocument();
+    expect(screen.queryByText(DEMO_NOTICE)).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("Access token"), { target: { value: demoTokens()[0] } });
+    fireEvent.click(screen.getByRole("button", { name: "Use token" }));
+
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    expect(screen.queryByTitle(DEMO_NOTICE)).not.toBeInTheDocument();
+  });
+
   it("asks for a new token when the API answers 401", async () => {
-    const unauthorized = async () =>
-      new Response(JSON.stringify({ type: "about:blank", title: "Unauthorized", status: 401, detail: "Expired." }), {
-        status: 401,
-        headers: { "Content-Type": "application/problem+json" },
-      });
+    const unauthorized = async () => problemResponse(401, "Unauthorized");
     renderApp({ fetch: unauthorized });
     // The heading is also an alert (role="alert"), so it is found by its text.
     expect(await screen.findByText("Token invalid or expired")).toBeInTheDocument();
+  });
+
+  it("offers the sign-in buttons again when the token expires", async () => {
+    let signedInAgain = false;
+    const expiredUntilSignIn = (input: string, init?: RequestInit) => {
+      if (input.endsWith("/auth/demo/token")) signedInAgain = true;
+      if (!signedInAgain && !input.includes("/auth/demo/")) {
+        return Promise.resolve(problemResponse(401, "Unauthorized"));
+      }
+      return mockFetch(input, init);
+    };
+    renderApp({ fetch: expiredUntilSignIn });
+    expect(await screen.findByText("Token invalid or expired")).toBeInTheDocument();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in as Fleet Procurement" }));
+
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });
 });
 

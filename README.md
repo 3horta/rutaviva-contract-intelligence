@@ -30,12 +30,8 @@ On start, the one-shot `migrate` service generates the JWT signing key into a Do
 
 ## A five-minute tour
 
-1. **Get a token per tenant** (test JWTs, valid 24 h):
-   ```bash
-   make token tenant=tenant_a
-   make token tenant=tenant_b
-   ```
-2. **Sign in:** open http://localhost:8080 and paste the `tenant_a` token. Add the `tenant_b` one as well: the top bar switches between them.
+1. **Sign in:** open http://localhost:8080 and click **Sign in as Fleet Procurement** (`tenant_a`). This is a demo shortcut, not authentication: the API signs a test JWT (valid 24 h) for the tenant you pick, with no password, and the app shows a "Demo mode" badge while it is on. It is on by default; `DEMO_LOGIN=false` in `.env` turns it off (ADR-016), and then you paste a token instead.
+2. **Second tenant:** with the **+** in the top bar, sign in as **Freight & Risk Procurement** (`tenant_b`) as well: the top bar switches between them. For scripts, or with demo mode off, `make token tenant=tenant_a` still prints a token to paste under "Use a token (advanced)".
 3. **Upload:** drag the PDFs of [`sample_data/pdfs/tenant_a/`](sample_data/pdfs/tenant_a). Each one goes `pending` → `processing` → `ready` (about 20 s for a 2-page contract on a 4-CPU machine). `corrupted_contract.pdf` ends `failed` with `corrupt_pdf`; uploading the same PDF twice says it is already there.
 4. **Ask** (Chat), as `tenant_a`:
    - *"What is the penalty for late tire delivery?"*: the agreement and its SLA exhibit disagree. The answer cites both and its confidence is capped at medium.
@@ -147,6 +143,6 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 - **Product features:** 👍/👎 feedback on answers, suggested follow-up questions.
 - **Operations:** a periodic sweep of expired leases (an expired lease is taken over when the task is delivered again), a transactional outbox for enqueuing (a crash between the upload's commit and the enqueue leaves the document `pending`), Docker secrets for provider keys, and a pre-built image in a registry.
 - **Deleting documents:** there is no endpoint to delete a document with its file and chunks.
-- **Users:** auth is one test JWT per tenant; there are no users, roles or token revocation.
+- **Users:** auth is one test JWT per tenant; there are no users, passwords, roles or token revocation. The demo sign-in buttons only hand out those JWTs to whoever can reach the API (ADR-016); they are not real authentication.
 
 The reasons, and what each would cost, are in [DECISIONS.md](DECISIONS.md).

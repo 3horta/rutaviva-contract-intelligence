@@ -194,6 +194,47 @@ export interface paths {
         patch: operations["rename_conversation_conversations__conversation_id__patch"];
         trace?: never;
     };
+    "/auth/demo/tenants": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Demo Tenants
+         * @description The tenants a demo token can be issued for. Demo mode only (`DEMO_LOGIN`).
+         */
+        get: operations["list_demo_tenants_auth_demo_tenants_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/auth/demo/token": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Issue Demo Token
+         * @description A token for the tenant, the same one `make token` issues. Demo mode only: this is
+         *     not authentication.
+         */
+        post: operations["issue_demo_token_auth_demo_token_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -352,6 +393,33 @@ export interface components {
             updated_at: string;
             /** Message Count */
             message_count: number;
+        };
+        /** DemoTenant */
+        DemoTenant: {
+            /** Name */
+            name: string;
+            /** Label */
+            label: string;
+        };
+        /** DemoTenantList */
+        DemoTenantList: {
+            /** Tenants */
+            tenants: components["schemas"]["DemoTenant"][];
+        };
+        /** DemoTokenRequest */
+        DemoTokenRequest: {
+            /** Tenant */
+            tenant: string;
+        };
+        /** DemoTokenResponse */
+        DemoTokenResponse: {
+            /** Access Token */
+            access_token: string;
+            /** Token Type */
+            token_type: string;
+            /** Expires In */
+            expires_in: number;
+            tenant: components["schemas"]["DemoTenant"];
         };
         /** DocumentList */
         DocumentList: {
@@ -998,6 +1066,66 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["ConversationSummary"];
                 };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_demo_tenants_auth_demo_tenants_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemoTenantList"];
+                };
+            };
+        };
+    };
+    issue_demo_token_auth_demo_token_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["DemoTokenRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DemoTokenResponse"];
+                };
+            };
+            /** @description Unknown tenant (Problem Details) */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Validation Error */
             422: {

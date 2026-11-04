@@ -79,8 +79,12 @@ function createAuthStore() {
     getActiveSession,
     getActiveToken,
 
-    /** Validates a pasted token, stores it and makes its tenant the active one. */
-    addToken(raw: string): AddTokenResult {
+    /**
+     * Validates a pasted token, stores it and makes its tenant the active one.
+     * `label` names the tenant when it is known (the demo sign-in); otherwise
+     * the token's tenant name is used.
+     */
+    addToken(raw: string, { label }: { label?: string } = {}): AddTokenResult {
       const token = raw.trim().replace(/^Bearer\s+/i, "");
       const claims = decodeClaims(token);
       if (!claims) return { ok: false, error: "This does not look like a JWT." };
@@ -90,7 +94,7 @@ function createAuthStore() {
 
       const session: TenantSession = {
         tenantKey,
-        label: claims.tenant_name ?? tenantKey,
+        label: label || (claims.tenant_name ?? tenantKey),
         token,
       };
       const others = state.sessions.filter((s) => s.tenantKey !== tenantKey);

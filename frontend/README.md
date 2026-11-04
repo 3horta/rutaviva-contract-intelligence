@@ -15,7 +15,7 @@ There is no UI kit: the few primitives live in `src/components/ui`. That keeps t
 ```
 frontend/src/
   api/          client (auth header, Problem Details → ApiError), endpoints, SSE stream, types
-  auth/         token store per tenant, token screens, tenant switcher
+  auth/         token store per tenant, sign-in screens (demo buttons, token form), tenant switcher
   components/ui buttons, badges, panels, states (loading / empty / error), fields
   features/     dashboard, documents (list, detail, viewer), upload, chat
   layout/       app shell, route error page
@@ -24,7 +24,7 @@ frontend/src/
 ```
 
 **Data flow:**
-1. `authStore` (one token per tenant, in `sessionStorage`).
+1. `authStore` (one token per tenant, in `sessionStorage`). A token comes from the demo sign-in (`auth/demoLogin.ts`: one button per tenant from `GET /auth/demo/tenants`, then `POST /auth/demo/token`) or is pasted under "Use a token (advanced)"; both are stored the same way. A 404 from the tenant list means the API runs with `DEMO_LOGIN=false`: the buttons and the "Demo mode" badge are hidden and the token form is shown alone (ADR-016).
 2. `apiRequest` adds `Authorization`, turns any non-2xx into an `ApiError` and flags a 401.
 3. React Query hooks per feature (`features/*/queries.ts`) cache and poll.
 4. Components.
@@ -36,7 +36,7 @@ Answers stream from `POST /query/stream`. `api/queryStream.ts` reads the Server-
 ```bash
 npm ci
 npm run dev          # http://localhost:5173, proxies /api to the API on :8000
-npm run dev:mocks    # no backend: the API is simulated in the browser ("Use demo tokens")
+npm run dev:mocks    # no backend: the API is simulated in the browser (demo sign-in buttons)
 ```
 
 In Docker, `make up` serves the build with Nginx on `http://localhost:8080` (same origin for `/api`, strict CSP).

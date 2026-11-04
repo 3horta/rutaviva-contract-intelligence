@@ -147,8 +147,10 @@ class Document(Base):
     chunk_count: Mapped[int | None]
     # Embedding version the document was indexed with.
     embedding_model: Mapped[str | None] = mapped_column(Text)
-    # For span links from the query trace to the ingestion trace.
+    # Span links from a query trace to the ingestion trace of each retrieved document
+    # (a link needs both the trace id and a span id of that trace).
     ingest_trace_id: Mapped[str | None] = mapped_column(Text)
+    ingest_span_id: Mapped[str | None] = mapped_column(Text)
     # Lease against stuck documents. If the worker dies midway, no `finally` runs;
     # a Celery redelivery may take over a `processing` document whose lease expired
     # (older than the task's time_limit).

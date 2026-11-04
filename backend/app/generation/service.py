@@ -37,6 +37,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from opentelemetry.trace import Span
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.config import Settings
@@ -52,6 +53,7 @@ from app.core.tracing import (
     ANSWER_CITATIONS,
     ANSWER_CONFIDENCE,
     ANSWER_INSUFFICIENT,
+    DOCUMENT_ID,
     EMBEDDING_MODEL,
     GEN_AI_INPUT_TOKENS,
     GEN_AI_OUTPUT_TOKENS,
@@ -62,9 +64,11 @@ from app.core.tracing import (
     LLM_VALIDATION_ERROR,
     TENANT_ID,
     current_trace_id,
+    link_to,
     set_attributes,
     span,
 )
+from app.db.models import Document
 from app.generation.validate import ValidatedAnswer, ValidationFailure, validate_answer
 from app.providers.embeddings.base import EmbeddingsProvider
 from app.providers.llm.base import ContextChunk, LLMProvider, PromptInput
@@ -166,6 +170,8 @@ def answer_with_usage(
                 embedding_model=embeddings.model_id,
                 settings=settings,
             )
+
+        _link_sources(session, chunks)
 
         if not chunks:
             nothing = _Generation(answer=None, attempts=0, tokens_in=0, tokens_out=0)
@@ -294,6 +300,21 @@ def _generate_validated(
         feedback = outcome.detail
 
     return _Generation(None, max_attempts, tokens_in, tokens_out)
+
+
+def _link_sources(session: Session, chunks: list[RetrievedChunk]) -> None:
+    """Link the query span to the ingestion trace of every retrieved document, so in
+    Jaeger one can jump from a question to how its sources were indexed."""
+    document_ids = list({chunk.document_id for chunk in chunks})
+    if not document_ids:
+        return
+    rows = session.execute(
+        select(Document.id, Document.ingest_trace_id, Document.ingest_span_id).where(
+            Document.id.in_(document_ids)
+        )
+    )
+    for document_id, trace_id, span_id in rows:
+        link_to(trace_id, span_id, **{DOCUMENT_ID: str(document_id)})
 
 
 def _to_app_error(exc: ProviderError) -> GatewayTimeout | ServiceUnavailable:

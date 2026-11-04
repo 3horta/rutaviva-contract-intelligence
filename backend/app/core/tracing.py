@@ -13,7 +13,7 @@ from contextlib import contextmanager
 from typing import Any
 
 from opentelemetry import trace
-from opentelemetry.trace import Span, Status, StatusCode
+from opentelemetry.trace import Span, SpanContext, Status, StatusCode, TraceFlags
 
 _tracer = trace.get_tracer("rutaviva")
 
@@ -71,6 +71,34 @@ def set_attributes(target: Span | None = None, **attributes: Any) -> None:
     for key, value in attributes.items():
         if value is not None:
             target.set_attribute(key, value)
+
+
+def current_span_id() -> str | None:
+    """Hex span id of the current span, or None outside a recorded trace."""
+    context = trace.get_current_span().get_span_context()
+    return format(context.span_id, "016x") if context.is_valid else None
+
+
+def link_to(trace_id: str | None, span_id: str | None, **attributes: Any) -> None:
+    """Add a link from the current span to a span of another trace (both ids in hex).
+
+    Used to connect a query to the ingestion of the documents it retrieved: they are
+    different traces (a question is not caused by an upload), but navigable in Jaeger.
+    Invalid or missing ids are ignored.
+    """
+    if not trace_id or not span_id:
+        return
+    try:
+        context = SpanContext(
+            trace_id=int(trace_id, 16),
+            span_id=int(span_id, 16),
+            is_remote=True,
+            trace_flags=TraceFlags(TraceFlags.SAMPLED),
+        )
+    except ValueError:
+        return
+    if context.is_valid:
+        trace.get_current_span().add_link(context, {k: v for k, v in attributes.items() if v})
 
 
 def current_trace_id() -> str | None:

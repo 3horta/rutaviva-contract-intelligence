@@ -201,6 +201,12 @@ def test_a_number_written_differently_is_still_grounded():
     assert eval_lib.check_numbers_grounded("What fee?", response) is None
 
 
+def test_the_page_of_a_citation_is_grounded():
+    citation = {**make_response()["citations"][0], "page": 3}
+    response = make_response(answer="The clause (page 3) says $75 per hour.", citations=[citation])
+    assert eval_lib.check_numbers_grounded("What is the rate?", response) is None
+
+
 def test_a_number_from_nowhere_is_flagged():
     response = make_response(answer="It is $90 per hour after 2 hours.")
     reason = eval_lib.check_numbers_grounded("What is the rate?", response)

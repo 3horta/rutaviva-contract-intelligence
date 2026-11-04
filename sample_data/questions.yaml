@@ -259,7 +259,10 @@ questions:
     tenant: tenant_a
     question: "Within how many hours must Frontera deliver a tire purchase order to the Central Yard?"
     kind: contradiction
-    soft: false
+    # Soft with the keyless LLM: both clauses are retrieved, but the extractive stand-in
+    # keeps only sentences within the calibrated margin of the best one (ADR-011), and the
+    # agreement's "72 business hours" sentence scores just below it. A real LLM reads both.
+    soft: true
     note: "Agreement says 72 business hours, SLA exhibit says 48 hours including weekends."
     expect:
       outcome: answered

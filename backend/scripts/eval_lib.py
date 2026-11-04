@@ -263,13 +263,16 @@ def numbers_in(text: str) -> set[str]:
 
 
 def check_numbers_grounded(question: str, response: dict[str, Any]) -> str | None:
-    """Cheap hallucination check: every number in an answer must appear in the question
-    or in one of the cited quotes (which the API already checked against the chunks)."""
+    """Cheap hallucination check: every number in an answer must appear in the question,
+    in one of the cited quotes (which the API already checked against the chunks) or be
+    the page of a citation (answers say "page 2" when they point to the source)."""
     if response.get("status") != "answered":
         return None
     allowed = numbers_in(question)
     for citation in response.get("citations", []):
         allowed |= numbers_in(citation.get("quote", ""))
+        if citation.get("page") is not None:
+            allowed.add(normalize_number(str(citation["page"])))
     ungrounded = sorted(numbers_in(str(response.get("answer", ""))) - allowed)
     if ungrounded:
         return f"numbers not in the question or the quotes: {ungrounded}"

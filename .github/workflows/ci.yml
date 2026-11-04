@@ -65,6 +65,13 @@ jobs:
           REQUIRE_DB: "1"
         run: uv run pytest -ra
 
+      # The frontend's types come from the committed frontend/openapi.json (ADR-F05):
+      # it must be what the backend code produces.
+      - name: OpenAPI document is up to date
+        run: |
+          uv run python scripts/export_openapi.py
+          git diff --exit-code -- ../frontend/openapi.json
+
   frontend:
     name: Frontend (lint + types + tests + build)
     runs-on: ubuntu-latest
@@ -100,6 +107,53 @@ jobs:
 
       - name: Build
         run: npm run build
+
+  e2e:
+    name: End to end (Compose stack, evaluation, traces)
+    # The whole system as a reviewer runs it: `docker compose up --build` with no .env,
+    # the keyless providers (fake LLM, local BGE embeddings), the sample PDFs and the
+    # verification questions. Slower than the other jobs (it builds the images).
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build and start the stack
+        run: docker compose up -d --build
+
+      - name: Wait for the API
+        run: |
+          for _ in $(seq 1 60); do
+            curl -fsS http://localhost:8000/health && exit 0
+            sleep 5
+          done
+          docker compose ps -a
+          exit 1
+
+      # Uploads the sample PDFs, waits for them, asks every question and exits 1 if a
+      # non-soft case fails.
+      - name: Evaluation (sample_data/questions.yaml)
+        shell: bash
+        run: make eval 2>&1 | grep -v '^{"timestamp' | tee eval.log
+
+      - name: Broken PDFs fail with their codes
+        run: |
+          grep -F "failed  corrupted_contract.pdf: corrupt_pdf" eval.log
+          grep -F "failed  scanned_lease_addendum_no_text.pdf: empty_pdf" eval.log
+
+      - name: Traces (upload crosses API and worker; query links to its ingestion)
+        run: python3 backend/scripts/check_traces.py
+
+      - name: Logs on failure
+        if: failure()
+        run: docker compose logs --no-color --tail 200 api worker migrate
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-log
+          path: eval.log
+          if-no-files-found: ignore
 
   secrets:
     name: Secret scan (gitleaks)

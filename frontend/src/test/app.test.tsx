@@ -27,7 +27,8 @@ describe("signing in", () => {
   it("signs in with one click per tenant, and to the second tenant from the top bar", async () => {
     renderApp({ signedIn: false });
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
-    expect(screen.getByText(DEMO_NOTICE)).toBeInTheDocument();
+    // The notice appears once the demo tenants have loaded.
+    expect(await screen.findByText(DEMO_NOTICE)).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Sign in as Fleet Procurement" }));
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();

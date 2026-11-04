@@ -52,6 +52,7 @@ from app.core.tracing import (
     ANSWER_CITATIONS,
     ANSWER_CONFIDENCE,
     ANSWER_INSUFFICIENT,
+    DOCUMENT_ID,
     EMBEDDING_MODEL,
     GEN_AI_INPUT_TOKENS,
     GEN_AI_OUTPUT_TOKENS,
@@ -62,6 +63,7 @@ from app.core.tracing import (
     LLM_VALIDATION_ERROR,
     TENANT_ID,
     current_trace_id,
+    link_to,
     set_attributes,
     span,
 )
@@ -166,6 +168,8 @@ def answer_with_usage(
                 embedding_model=embeddings.model_id,
                 settings=settings,
             )
+
+        _link_sources(chunks)
 
         if not chunks:
             nothing = _Generation(answer=None, attempts=0, tokens_in=0, tokens_out=0)
@@ -294,6 +298,19 @@ def _generate_validated(
         feedback = outcome.detail
 
     return _Generation(None, max_attempts, tokens_in, tokens_out)
+
+
+def _link_sources(chunks: list[RetrievedChunk]) -> None:
+    """Link the query span to the ingestion trace of every retrieved document, so in
+    Jaeger one can jump from a question to how its sources were indexed. The ids come
+    with the search results (no extra query)."""
+    seen: set[uuid.UUID] = set()
+    for chunk in chunks:
+        if chunk.document_id not in seen:
+            seen.add(chunk.document_id)
+            link_to(
+                chunk.ingest_trace_id, chunk.ingest_span_id, **{DOCUMENT_ID: str(chunk.document_id)}
+            )
 
 
 def _to_app_error(exc: ProviderError) -> GatewayTimeout | ServiceUnavailable:

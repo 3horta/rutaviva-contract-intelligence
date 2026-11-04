@@ -337,6 +337,7 @@ def _store(
                 chunk_count=len(drafts),
                 embedding_model=deps.embeddings.model_id,
                 ingest_trace_id=tracing.current_trace_id(),
+                ingest_span_id=tracing.current_span_id(),
                 processing_ms=processing_ms,
                 embedding_calls=embedded.calls,
                 embedding_tokens=embedded.tokens,

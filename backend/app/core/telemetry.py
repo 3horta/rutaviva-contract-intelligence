@@ -80,12 +80,10 @@ def configure_telemetry(service_name: str, settings: Settings) -> None:
 
 
 def instrument_fastapi(app: FastAPI) -> None:
-    """One server span per request of this app.
-
-    `/health` is traced too: it is the cheapest way to check the whole tracing pipeline
-    (`curl /health`, then look for the trace in Jaeger).
-    """
-    FastAPIInstrumentor.instrument_app(app)
+    """One server span per request of this app, except `/health`: the container
+    healthcheck calls it every few seconds, and those traces would bury the real ones.
+    (To check the pipeline, any other request works, e.g. `GET /documents`.)"""
+    FastAPIInstrumentor.instrument_app(app, excluded_urls="/health")
 
 
 # --- SQL query spans ---------------------------------------------------------------------

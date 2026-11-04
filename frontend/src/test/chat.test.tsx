@@ -100,10 +100,10 @@ describe("chat", () => {
 
   it("shows the generated title of a new conversation", async () => {
     renderApp({ route: "/chat" });
-    await ask("What is the payment term in the fuel supply agreement?");
-    expect(await screen.findByRole("heading", { level: 1, name: "Payment term in the fuel supply agreement" })).toBeInTheDocument();
+    await ask("What is the notice period in the fuel supply agreement?");
+    expect(await screen.findByRole("heading", { level: 1, name: "Notice period in the fuel supply agreement" })).toBeInTheDocument();
     const history = screen.getByRole("navigation", { name: "Conversation history" });
-    expect(await within(history).findByText("Payment term in the fuel supply agreement")).toBeInTheDocument();
+    expect(await within(history).findByText("Notice period in the fuel supply agreement")).toBeInTheDocument();
   });
 
   it("shows stored suggestions after opening a conversation", async () => {

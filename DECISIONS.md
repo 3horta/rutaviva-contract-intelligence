@@ -21,6 +21,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
 | [ADR-012](#adr-012--interchangeable-providers-keyless-by-default-litellm-with-a-key) | Interchangeable providers: keyless by default, LiteLLM with a key | Accepted |
 | [ADR-013](#adr-013--untrusted-content-flag-exclude-and-warn-disagreeing-sources-degrade-confidence) | Untrusted content: flag, exclude and warn; disagreeing sources degrade confidence | Accepted |
 | [ADR-014](#adr-014--quality-by-behaviour-an-evaluation-harness-over-a-small-question-set) | Quality by behaviour: an evaluation harness over a small question set | Accepted |
+| [ADR-016](#adr-016--demo-sign-in-per-tenant) | Demo sign-in per tenant | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
@@ -285,6 +286,26 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - Two bugs found by the first run were in the **harness**, not the system: the number check flagged the page the answer quotes ("page 2") as an invented number, and documents ingested before injection flagging existed were reused as duplicates. The first is fixed (citation pages count as grounded); the second only affects a long-lived local database (the CI stack starts empty).
 - **In CI:** the `e2e` job builds the stack with no `.env`, runs `make eval` (fails on any hard case), checks that the corrupt and scanned PDFs fail with `corrupt_pdf` / `empty_pdf`, and checks the traces through Jaeger's API (`scripts/check_traces.py`: the upload trace spans API and worker; `query.answer` links to an ingestion trace).
 - **Verified by:** `tests/unit/test_eval_lib.py`: each check passing and failing, number normalisation, the leak check on citations and on retrieved-only chunks, soft to `WARN`, repeat to `FLAKY`, the exit code, document polling with a timeout, and loading the sample set.
+
+## ADR-016 · Demo sign-in per tenant
+
+- **Context:** signing in meant running `make token tenant=…` in a terminal, copying the JWT and pasting it in the web app. Correct, but uncomfortable for a demo, and the person trying it needs a shell next to the browser.
+- **Decision:**
+  - Two API routes, a demo shortcut and **not authentication**: `GET /auth/demo/tenants` lists `{name, label}` (the slug and the display name of each row of `tenants`, nothing else), and `POST /auth/demo/token` with `{"tenant": "<name>"}` returns `{access_token, token_type: "bearer", expires_in, tenant}`. The token is signed by the same `issue_token` as `make token` (same key, claims and TTL), so the API checks it like any other. An unknown tenant is a 404 Problem Details. Issuing logs `auth.demo_token_issued` with the tenant (never the token) and sets `tenant.id` / `tenant.name` on the span.
+  - **On by default**, by the owner's decision: the point of the delivery is that it runs and can be tried with no setup. `DEMO_LOGIN=false` (also `0`, `no`, `off`, any case) turns it off. Then the router is not registered at all: both routes answer 404 and are absent from OpenAPI. The switch is read in `app/api/demo_auth.py`, outside `Settings`. The committed `frontend/openapi.json` describes the default (demo on); the export script forces it.
+  - The login screen shows one "Sign in as <label>" button per tenant. The token it gets is stored exactly like a pasted one (same session, same store), so the tenant switcher works and both tenants can be signed in; the **+** of the top bar offers the same buttons. Pasting a token stays, folded under "Use a token (advanced)". When the API answers 401 the expired screen shows the buttons again.
+  - A visible notice while it is on: a "Demo mode" badge in the top bar and, on the sign-in screens, "Demo mode: sign-in without a password. Do not deploy with DEMO_LOGIN on."
+  - The frontend learns the mode from the tenant list itself: a 404 means off. No extra field in `/health`, and one request answers both "is it on?" and "which tenants?".
+- **Rejected:**
+  - Off by default: safer, but the first thing a reviewer would meet is a terminal step.
+  - A password or a shared demo secret: still not identity, and it adds a credential to manage for no real protection.
+  - Unsigned or differently signed demo tokens: a second token format to verify, and the demo would stop proving the real auth path.
+- **Consequences and risk:**
+  - While it is on, **anyone who can reach the API can mint a token for any tenant**. In Compose the API and the web app are bound to `127.0.0.1`, so that means whoever uses this machine.
+  - Tenant isolation itself is unchanged: the tenant still comes only from a verified token, every query filters by it and RLS enforces it (ADR-002). A demo token for `tenant_a` sees nothing of `tenant_b`.
+  - The tenant list reads only `tenants`, which the app role can already read with no tenant set (no RLS on it, as in the token check); no document data is exposed.
+  - Production needs real identity (users, or an identity provider issuing the tokens) and `DEMO_LOGIN=false`; this does not replace either.
+- **Verified by:** `backend/tests/unit/test_demo_auth.py` (the switch values, the listing, a token identical in claims and TTL that an authenticated route accepts, unknown tenant 404, nothing logged but the tenant, routes absent from OpenAPI and 404 when off), `backend/tests/integration/test_demo_auth_api.py` (tenants from the database; a demo token for one tenant cannot see or open the other tenant's documents) and `frontend/src/test/app.test.tsx` (one-click sign-in to both tenants, the folded token form, demo off, the buttons again after a 401).
 
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 

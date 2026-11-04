@@ -12,6 +12,10 @@ dependencies = [
     "opentelemetry-instrumentation-celery>=0.51b0",
     "opentelemetry-instrumentation-fastapi>=0.51b0",
     "opentelemetry-sdk>=1.30",
+    "pdfplumber==0.11.10",
+    # pdfplumber needs pypdfium2>=5.9; 5.11 is the newest with a macOS 12 Intel wheel
+    # (5.12+ need macOS 13), so the backend still installs on older Intel Macs.
+    "pypdfium2==5.11.0",
     "pgvector>=0.3.6",
     "psycopg[binary]>=3.2",
     "pydantic-settings>=2.6",

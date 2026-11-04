@@ -17,12 +17,16 @@ logger = logging.getLogger(__name__)
 
 
 @lru_cache
-def _extractor(artifacts_path: Path | None):
-    """One Docling extractor per worker process: building it loads the layout model
-    (seconds), so a new one per task would reload the models for every PDF."""
-    from app.ingestion.extract import DoclingExtractor
+def _extractor(name: str, artifacts_path: Path | None):
+    """One extractor per worker process. For Docling it matters: building it loads the
+    layout model (seconds), so a new one per task would reload it for every PDF."""
+    if name == "docling":
+        from app.ingestion.extract import DoclingExtractor
 
-    return DoclingExtractor(artifacts_path)
+        return DoclingExtractor(artifacts_path)
+    from app.ingestion.pdfplumber_extract import PdfPlumberExtractor
+
+    return PdfPlumberExtractor()
 
 
 def build_deps() -> IngestionDeps:
@@ -39,7 +43,7 @@ def build_deps() -> IngestionDeps:
     return IngestionDeps(
         session_factory=session_factory_for(settings.database_url),
         storage=LocalDiskStorage(settings.files_dir),
-        extractor=_extractor(settings.docling_artifacts_path),
+        extractor=_extractor(settings.text_extractor, settings.docling_artifacts_path),
         embeddings=get_embeddings(settings),
         settings=settings,
     )

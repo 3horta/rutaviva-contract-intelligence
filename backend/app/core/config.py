@@ -95,6 +95,11 @@ class Settings(BaseSettings):
     task_max_attempts: int = Field(default=3, ge=1, le=10)
     embedding_batch_size: int = Field(default=32, gt=0, le=256)
 
+    # Text extraction. pdfplumber (default) reads the PDF text layer: seconds per
+    # contract, no models. docling adds layout understanding with a model, at minutes per
+    # contract on a CPU.
+    text_extractor: Literal["pdfplumber", "docling"] = "pdfplumber"
+
     # Docling models are baked into the worker image; this points at them so the worker
     # never downloads anything at runtime. None = Docling's default cache.
     docling_artifacts_path: Path | None = None

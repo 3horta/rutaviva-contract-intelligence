@@ -141,6 +141,13 @@ jobs:
           grep -F "failed  corrupted_contract.pdf: corrupt_pdf" eval.log
           grep -F "failed  scanned_lease_addendum_no_text.pdf: empty_pdf" eval.log
 
+      # With nosniff, a module worker served with a non-JavaScript type does not run, and
+      # the PDF viewer shows "could not be displayed". Unit tests do not go through nginx.
+      - name: PDF.js worker is served as JavaScript
+        run: |
+          worker=$(docker compose exec -T web sh -c 'ls /usr/share/nginx/html/assets | grep "^pdf.worker"')
+          curl -fsSI "http://localhost:8080/assets/$worker" | tee /dev/stderr | grep -qi '^content-type: text/javascript'
+
       - name: Traces (upload crosses API and worker; query links to its ingestion)
         run: python3 backend/scripts/check_traces.py
 

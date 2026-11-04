@@ -24,6 +24,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
 | [ADR-015](#adr-015--reranking-a-local-cross-encoder-between-fusion-and-selection) | Reranking: a local cross-encoder between fusion and selection | Accepted |
 | [ADR-016](#adr-016--demo-sign-in-per-tenant) | Demo sign-in per tenant | Accepted |
 | [ADR-017](#adr-017--an-mcp-server-for-ai-agents-read-only-same-jwt-same-isolation) | An MCP server for AI agents: read-only, same JWT, same isolation | Accepted |
+| [ADR-019](#adr-019--answer-feedback) | Answer feedback | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
@@ -389,6 +390,21 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
     - another tenant's passage "does not exist";
     - a flagged passage is withheld;
     - `ask_contracts` answers with a checked citation and stores no conversation.
+
+## ADR-019 · Answer feedback
+
+- **Context:** analysts need a quick way to say whether an answer helped, and why not, so weak answers can be found and the question set (ADR-014) can grow from real cases.
+- **Decision (interface):**
+  - Under each stored answer (`answered` or `insufficient_evidence`; never an interrupted turn or the answer being written), two toggle buttons next to Copy and Ask again: **Useful** and **Not useful** (`aria-pressed`, labelled, reachable by keyboard; disabled while another answer is being written, like Ask again).
+  - Choosing one stores it at once and opens an optional comment box ("What was useful?" / "What went wrong?", at most 1000 characters) with Send and Cancel. Escape cancels. Either way focus goes back to the chosen button, and a polite status says "Thanks for the feedback".
+  - Choosing the other rating replaces it (and starts without a comment); choosing the same one again takes it back.
+  - The change is shown at once and stored in the background, one request after another, so a quick change of mind is stored in order. A failed request puts back what was shown before and says so.
+  - One client function, `sendFeedback` (`src/api/feedback.ts`): PUT the rating, DELETE to clear it. The mock API implements the route with the same rules (only answers, `up`/`down`, comment trimmed and capped), so the demo and the tests run it end to end.
+- **Storage: pending.** The API has no feedback route yet, so the real client keeps the rating on screen only, until the page is reloaded; it does not call a route that does not exist. The mock API turns the route on.
+- **Rejected:**
+  - Asking for a comment only after a negative rating: what made an answer useful is also worth knowing, and the box is optional and one keystroke away from closed.
+  - A modal dialog for the comment: it interrupts reading the thread for an optional note.
+- **Verified by:** `src/test/feedback.test.tsx` (rate, comment, change, cancel, Escape, take back, failure, not-enough-evidence answers, nothing while an answer is written), `src/api/feedback.test.ts` (no request while the route is off; PUT/DELETE otherwise), and an axe check with the comment box open (`src/test/a11y.test.tsx`).
 
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 

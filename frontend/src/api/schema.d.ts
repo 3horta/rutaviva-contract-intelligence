@@ -178,7 +178,8 @@ export interface paths {
         };
         /**
          * Get Conversation
-         * @description The conversation with all its messages, in order.
+         * @description The conversation with all its messages, in order. Each answer carries the feedback
+         *     totals, and the caller's own feedback when `X-Rater-Id` is sent.
          */
         get: operations["get_conversation_conversations__conversation_id__get"];
         put?: never;
@@ -192,6 +193,34 @@ export interface paths {
         head?: never;
         /** Rename Conversation */
         patch: operations["rename_conversation_conversations__conversation_id__patch"];
+        trace?: never;
+    };
+    "/conversations/{conversation_id}/messages/{message_id}/feedback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Rate Message
+         * @description Rate an answer (`up` / `down`, optional comment), replacing this rater's earlier
+         *     rating. Returns it with the answer's totals. 404 for a message not in this tenant's
+         *     conversation; 422 for a question, an interrupted turn, an invalid body or a missing or
+         *     invalid `X-Rater-Id`.
+         */
+        put: operations["rate_message_conversations__conversation_id__messages__message_id__feedback_put"];
+        post?: never;
+        /**
+         * Clear Feedback
+         * @description Remove this rater's rating of an answer (also when there was none); other raters'
+         *     stay. Returns the answer's totals.
+         */
+        delete: operations["clear_feedback_conversations__conversation_id__messages__message_id__feedback_delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
         trace?: never;
     };
     "/auth/demo/tenants": {
@@ -485,6 +514,30 @@ export interface components {
             total: number;
             by_status: components["schemas"]["StatusCounts"];
         };
+        /**
+         * FeedbackResult
+         * @description After a PUT or DELETE: this rater's feedback (null once cleared) and the totals.
+         */
+        FeedbackResult: {
+            feedback: components["schemas"]["MessageFeedbackOut"] | null;
+            totals: components["schemas"]["FeedbackTotals"];
+        };
+        /**
+         * FeedbackTotals
+         * @description How many raters of the tenant found an answer useful (`up`) or not (`down`).
+         */
+        FeedbackTotals: {
+            /**
+             * Up
+             * @default 0
+             */
+            up: number;
+            /**
+             * Down
+             * @default 0
+             */
+            down: number;
+        };
         /** HTTPValidationError */
         HTTPValidationError: {
             /** Detail */
@@ -510,6 +563,32 @@ export interface components {
             embeddings_provider: "local" | "fake" | "gemini";
             /** Embedding Model */
             embedding_model: string;
+        };
+        /**
+         * MessageFeedbackIn
+         * @description Body of `PUT .../feedback`. A blank comment is stored as none.
+         */
+        MessageFeedbackIn: {
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "up" | "down";
+            /** Comment */
+            comment?: string | null;
+        };
+        /**
+         * MessageFeedbackOut
+         * @description One rater's rating of an answer. `comment` is trimmed, null when there is none.
+         */
+        MessageFeedbackOut: {
+            /**
+             * Rating
+             * @enum {string}
+             */
+            rating: "up" | "down";
+            /** Comment */
+            comment: string | null;
         };
         /**
          * MessageOut
@@ -541,6 +620,8 @@ export interface components {
             details: components["schemas"]["AnswerDetails"] | null;
             /** Suggestions */
             suggestions?: string[];
+            feedback?: components["schemas"]["MessageFeedbackOut"] | null;
+            feedback_totals?: components["schemas"]["FeedbackTotals"] | null;
             /**
              * Created At
              * Format: date-time
@@ -989,7 +1070,10 @@ export interface operations {
     get_conversation_conversations__conversation_id__get: {
         parameters: {
             query?: never;
-            header?: never;
+            header?: {
+                /** @description Include this rater's own feedback on each answer. */
+                "X-Rater-Id"?: string | null;
+            };
             path: {
                 conversation_id: string;
             };
@@ -1068,6 +1152,80 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ConversationSummary"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    rate_message_conversations__conversation_id__messages__message_id__feedback_put: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Anonymous id of the rater (a UUID the client keeps). */
+                "X-Rater-Id": string;
+            };
+            path: {
+                conversation_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MessageFeedbackIn"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackResult"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    clear_feedback_conversations__conversation_id__messages__message_id__feedback_delete: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Anonymous id of the rater (a UUID the client keeps). */
+                "X-Rater-Id": string;
+            };
+            path: {
+                conversation_id: string;
+                message_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["FeedbackResult"];
                 };
             };
             /** @description Validation Error */

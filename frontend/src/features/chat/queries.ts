@@ -5,7 +5,7 @@ import {
   listConversations,
   renameConversation,
 } from "../../api/conversations";
-import type { ConversationDetail } from "../../api/types";
+import type { ConversationDetail, FeedbackTotals, MessageFeedback } from "../../api/types";
 
 /** Conversations per page of the sidebar ("Load more" asks for the next one). */
 export const CONVERSATIONS_PAGE = 20;
@@ -61,4 +61,18 @@ export function useDeleteConversation() {
       void queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
     },
   });
+}
+
+/** Keeps a rating just stored (and the new totals) in the cached conversation, for when the answer is drawn again. */
+export function useStoreFeedbackInCache(conversationId: string | undefined) {
+  const queryClient = useQueryClient();
+  return (messageId: string, feedback: MessageFeedback | null, totals: FeedbackTotals) => {
+    if (!conversationId) return;
+    queryClient.setQueryData<ConversationDetail>(conversationKeys.detail(conversationId), (detail) =>
+      detail && {
+        ...detail,
+        messages: detail.messages.map((message) => (message.id === messageId ? { ...message, feedback, feedback_totals: totals } : message)),
+      },
+    );
+  };
 }

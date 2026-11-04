@@ -1,4 +1,5 @@
 import { apiJson, apiRequest } from "./client";
+import { RATER_HEADER, raterId } from "./rater";
 import type {
   ConversationDetail,
   ConversationList,
@@ -17,8 +18,9 @@ export function listConversations(
   return apiJson<ConversationList>(`/conversations?${params}`, { signal });
 }
 
+/** With this browser's rater id, so each answer carries its own feedback (ADR-019). */
 export function getConversation(id: string, signal?: AbortSignal): Promise<ConversationDetail> {
-  return apiJson<ConversationDetail>(path(id), { signal });
+  return apiJson<ConversationDetail>(path(id), { signal, headers: { [RATER_HEADER]: raterId() } });
 }
 
 export function renameConversation(id: string, title: string): Promise<ConversationSummary> {

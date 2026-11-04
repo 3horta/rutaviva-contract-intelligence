@@ -1,43 +1,29 @@
-// @vitest-environment node
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { setFetchImplementation } from "./client";
-import { sendFeedback, setFeedbackRouteAvailable } from "./feedback";
-
-afterEach(() => setFeedbackRouteAvailable(false));
+import { sendFeedback } from "./feedback";
+import { raterId } from "./rater";
 
 describe("sendFeedback", () => {
-  it("does not call the API while it has no feedback route", async () => {
-    const fetch = vi.fn();
-    setFetchImplementation(fetch);
-    setFeedbackRouteAvailable(false);
-    await expect(sendFeedback("c1", "m1", { rating: "down", comment: "  Wrong clause " })).resolves.toEqual({
-      rating: "down",
-      comment: "Wrong clause",
-    });
-    await expect(sendFeedback("c1", "m1", null)).resolves.toBeNull();
-    expect(fetch).not.toHaveBeenCalled();
-  });
-
-  it("PUTs a rating and DELETEs to clear it", async () => {
+  it("PUTs a rating and DELETEs to clear it, as this browser's rater", async () => {
+    const result = (feedback: unknown) =>
+      new Response(JSON.stringify({ feedback, totals: { up: 1, down: 0 } }), { status: 200 });
     const fetch = vi.fn((_input: string, init?: RequestInit) =>
-      Promise.resolve(
-        init?.method === "DELETE"
-          ? new Response(null, { status: 204 })
-          : new Response(JSON.stringify({ rating: "up", comment: null }), { status: 200 }),
-      ),
+      Promise.resolve(result(init?.method === "DELETE" ? null : { rating: "up", comment: null })),
     );
     setFetchImplementation(fetch);
-    setFeedbackRouteAvailable(true);
 
-    await expect(sendFeedback("c1", "m1", { rating: "up" })).resolves.toEqual({ rating: "up", comment: null });
-    expect(fetch).toHaveBeenLastCalledWith(
-      "/api/conversations/c1/messages/m1/feedback",
-      expect.objectContaining({ method: "PUT", body: JSON.stringify({ rating: "up" }) }),
-    );
-    await expect(sendFeedback("c1", "m1", null)).resolves.toBeNull();
-    expect(fetch).toHaveBeenLastCalledWith(
-      "/api/conversations/c1/messages/m1/feedback",
-      expect.objectContaining({ method: "DELETE" }),
-    );
+    await expect(sendFeedback("c1", "m1", { rating: "up" })).resolves.toEqual({
+      feedback: { rating: "up", comment: null },
+      totals: { up: 1, down: 0 },
+    });
+    const [path, put] = fetch.mock.calls[0] ?? [];
+    expect(path).toBe("/api/conversations/c1/messages/m1/feedback");
+    expect(put).toMatchObject({ method: "PUT", body: JSON.stringify({ rating: "up" }) });
+    expect(new Headers(put?.headers).get("X-Rater-Id")).toBe(raterId());
+
+    await expect(sendFeedback("c1", "m1", null)).resolves.toMatchObject({ feedback: null });
+    const [, del] = fetch.mock.calls[1] ?? [];
+    expect(del?.method).toBe("DELETE");
+    expect(new Headers(del?.headers).get("X-Rater-Id")).toBe(raterId());
   });
 });

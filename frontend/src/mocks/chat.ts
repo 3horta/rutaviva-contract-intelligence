@@ -23,6 +23,8 @@ import type {
   ConversationSummary,
   DocumentOut,
   FeedbackRating,
+  FeedbackResult,
+  FeedbackTotals,
   MessageFeedback,
   QueryPhase,
   QueryResponse,
@@ -342,37 +344,59 @@ export function listConversations(conversations: MockConversation[], params: URL
   return { count: results.length, limit, offset, results: results.slice(offset, offset + limit) };
 }
 
-export function conversationDetail(conversation: MockConversation): ConversationDetail {
-  return { ...summary(conversation), messages: conversation.messages };
+/** Ratings of each answer, by rater id (message ids are unique across tenants). */
+const ratings = new Map<string, Map<string, MessageFeedback>>();
+
+function totalsOf(messageId: string): FeedbackTotals {
+  const totals: FeedbackTotals = { up: 0, down: 0 };
+  ratings.get(messageId)?.forEach((feedback) => totals[feedback.rating]++);
+  return totals;
 }
 
-/** Ratings of answers, by message id (message ids are unique across tenants). */
-const feedbackByMessage = new Map<string, MessageFeedback>();
+/** Like the API: each answer with the totals, and with `rater`'s own feedback when given. */
+export function conversationDetail(conversation: MockConversation, rater: string | null): ConversationDetail {
+  return {
+    ...summary(conversation),
+    messages: conversation.messages.map((message) =>
+      message.role === "assistant"
+        ? {
+            ...message,
+            feedback: (rater && ratings.get(message.id)?.get(rater)) || null,
+            feedback_totals: totalsOf(message.id),
+          }
+        : { ...message, feedback: null, feedback_totals: null },
+    ),
+  };
+}
 
-export type FeedbackResult =
-  | { ok: true; feedback: MessageFeedback | null }
+export type RateOutcome =
+  | { ok: true; result: FeedbackResult }
   | { ok: false; status: 404 | 422; detail: string };
 
 const RATINGS: readonly string[] = ["up", "down"] satisfies FeedbackRating[];
 
 /**
- * PUT (`body`) or DELETE (`body` null) the rating of an answer, with the API's
- * rules: only stored answers (not questions, not interrupted turns), a rating
- * "up" or "down", an optional comment of at most 1000 characters, trimmed.
+ * PUT (`body`) or DELETE (`body` null) `rater`'s rating of an answer, with the
+ * API's rules: only stored answers (not questions, not interrupted turns), a
+ * rating "up" or "down", an optional comment of at most 1000 characters,
+ * trimmed. Other raters' ratings are left alone.
  */
 export function rateMessage(
   conversation: MockConversation,
   messageId: string,
+  rater: string,
   body: Record<string, unknown> | null,
-): FeedbackResult {
+): RateOutcome {
   const message = conversation.messages.find((m) => m.id === messageId);
   if (!message) return { ok: false, status: 404, detail: "Message not found." };
   if (message.role !== "assistant" || message.status === "interrupted") {
     return { ok: false, status: 422, detail: "Only an answer can be rated." };
   }
+  const byRater = ratings.get(messageId) ?? new Map<string, MessageFeedback>();
+  ratings.set(messageId, byRater);
   if (!body) {
-    feedbackByMessage.delete(messageId);
-    return { ok: true, feedback: null };
+    byRater.delete(rater);
+    return { ok: true, result: { feedback: null, totals: totalsOf(messageId) } };
   }
   const { rating, comment = null } = body;
   if (typeof rating !== "string" || !RATINGS.includes(rating)) {
@@ -386,8 +410,8 @@ export function rateMessage(
     return { ok: false, status: 422, detail: `The comment must have at most ${FEEDBACK_COMMENT_MAX} characters.` };
   }
   const feedback: MessageFeedback = { rating: rating as FeedbackRating, comment: trimmed || null };
-  feedbackByMessage.set(messageId, feedback);
-  return { ok: true, feedback };
+  byRater.set(rater, feedback);
+  return { ok: true, result: { feedback, totals: totalsOf(messageId) } };
 }
 
 export function renameConversation(conversation: MockConversation, title: string): ConversationSummary {

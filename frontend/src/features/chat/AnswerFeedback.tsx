@@ -1,6 +1,6 @@
-import { ThumbsDown, ThumbsUp } from "lucide-react";
+import { MessageSquareText, ThumbsDown, ThumbsUp } from "lucide-react";
 import { useEffect, useId, useRef, type RefObject } from "react";
-import { FEEDBACK_COMMENT_MAX, type FeedbackRating } from "../../api/types";
+import { FEEDBACK_COMMENT_MAX, type FeedbackRating, type FeedbackTotals } from "../../api/types";
 import { Button } from "../../components/ui/Button";
 import { Textarea } from "../../components/ui/Field";
 import type { AnswerFeedbackState } from "./useAnswerFeedback";
@@ -17,9 +17,28 @@ interface ButtonsProps {
   groupRef: RefObject<HTMLDivElement>;
 }
 
-/** 👍 / 👎 toggles, with the short confirmation (or error) next to them. */
+/** "3 found it useful, 1 did not": what a screen reader hears for the totals. */
+function totalsText({ up, down }: FeedbackTotals): string {
+  return `${up} found it useful, ${down} did not`;
+}
+
+/** The tenant's totals, drawn as "👍 3 · 👎 1"; nothing until someone rates. */
+function Totals({ totals }: { totals: FeedbackTotals }) {
+  if (totals.up + totals.down === 0) return null;
+  return (
+    <span className={styles.totals}>
+      <span aria-hidden="true">
+        <ThumbsUp size={12} /> {totals.up} · <ThumbsDown size={12} /> {totals.down}
+      </span>
+      <span className="sr-only">{totalsText(totals)}</span>
+    </span>
+  );
+}
+
+/** 👍 / 👎 toggles (this browser's choice), the totals, and the short confirmation (or error). */
 export function FeedbackButtons({ state, locked, groupRef }: ButtonsProps) {
   const chosen = state.feedback?.rating ?? null;
+  const commentLabel = state.feedback?.comment ? "Edit your comment" : "Add a comment";
   return (
     <>
       <div ref={groupRef} className={styles.rating} role="group" aria-label="Rate this answer">
@@ -42,6 +61,19 @@ export function FeedbackButtons({ state, locked, groupRef }: ButtonsProps) {
           );
         })}
       </div>
+      <Totals totals={state.totals} />
+      {chosen && !state.commenting && (
+        <Button
+          variant="text"
+          size="small"
+          iconOnly
+          aria-label={commentLabel}
+          title={commentLabel}
+          disabled={locked}
+          onClick={state.editComment}
+          icon={<MessageSquareText size={15} aria-hidden="true" />}
+        />
+      )}
       <span className={styles.feedbackNote} role="status">
         {state.thanked ? "Thanks for the feedback" : ""}
       </span>
@@ -100,7 +132,8 @@ export function FeedbackComment({ state, onClosed }: CommentProps) {
         }}
       />
       <div className={styles.feedbackFormActions}>
-        <Button type="submit" variant="primary" size="small" disabled={state.sending}>
+        {/* Not disabled while the rating itself is being stored: requests are queued in order. */}
+        <Button type="submit" variant="primary" size="small">
           Send
         </Button>
         <Button variant="text" size="small" onClick={cancel}>

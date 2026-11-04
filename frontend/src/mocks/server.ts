@@ -5,7 +5,7 @@
  * server-side paging/sorting/search, documents that move through statuses.
  */
 import { API_PREFIX, setFetchImplementation } from "../api/client";
-import { setFeedbackRouteAvailable } from "../api/feedback";
+import { RATER_HEADER } from "../api/rater";
 import type {
   DemoTenantList,
   DemoTokenResponse,
@@ -34,6 +34,7 @@ import { EMBEDDING_MODEL, seedTenants, type MockDocument } from "./data";
 import { DEMO_TENANTS, DEMO_TOKEN_TTL_SECONDS, demoToken } from "./tokens";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 const startedAt = Date.now();
 const tenants = seedTenants(startedAt);
@@ -278,6 +279,13 @@ function handleChat(
     return list ? json(list) : problem(422, "Validation error", "limit must be 1-100 and offset must be 0 or more.");
   }
 
+  // The anonymous rater of the browser (ADR-019); like the API, it must be a UUID when sent.
+  const raterHeader = new Headers(init.headers).get(RATER_HEADER);
+  const rater = raterHeader && UUID.test(raterHeader) ? raterHeader : null;
+  if (raterHeader !== null && !rater) {
+    return problem(422, "Validation error", "The X-Rater-Id header must be a UUID.");
+  }
+
   const index = conversations.findIndex((c) => c.id === parts[1]);
   const conversation = conversations[index];
   if (parts[0] === "conversations" && parts.length === 5 && parts[2] === "messages" && parts[4] === "feedback") {
@@ -285,16 +293,17 @@ function handleChat(
     if (method !== "PUT" && method !== "DELETE") {
       return problem(405, "Method not allowed", `${method} is not allowed here.`);
     }
-    const result = rateMessage(conversation, parts[3] ?? "", method === "PUT" ? readJson(init.body) : null);
-    if (!result.ok) {
-      return problem(result.status, result.status === 404 ? "Not found" : "Validation error", result.detail);
+    if (!rater) return problem(422, "Validation error", "The X-Rater-Id header must be a UUID.");
+    const outcome = rateMessage(conversation, parts[3] ?? "", rater, method === "PUT" ? readJson(init.body) : null);
+    if (!outcome.ok) {
+      return problem(outcome.status, outcome.status === 404 ? "Not found" : "Validation error", outcome.detail);
     }
-    return result.feedback ? json(result.feedback) : new Response(null, { status: 204 });
+    return json(outcome.result);
   }
   if (parts[0] !== "conversations" || parts.length !== 2 || !conversation) {
     return problem(404, "Not found", "Conversation not found.");
   }
-  if (method === "GET") return json(conversationDetail(conversation));
+  if (method === "GET") return json(conversationDetail(conversation, rater));
   if (method === "PATCH") {
     const title = readJson(init.body).title;
     if (typeof title !== "string" || !title.trim() || title.trim().length > 120) {
@@ -391,7 +400,6 @@ export function installMockApi({ instant = false }: { instant?: boolean } = {}):
   latencyScale = instant ? 0 : 1;
   setMockTimeScale(latencyScale);
   setFetchImplementation(mockFetch);
-  setFeedbackRouteAvailable(true);
   if (instant) return;
   console.info("[mocks] API served in memory. Demo chunk link:", demoChunkLink());
 }

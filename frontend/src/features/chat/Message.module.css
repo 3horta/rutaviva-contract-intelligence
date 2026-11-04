@@ -416,3 +416,16 @@
   display: flex;
   gap: 6px;
 }
+
+.totals {
+  display: inline-flex;
+  align-self: center;
+  margin: 0 4px;
+  color: var(--rv-muted);
+  font-size: 0.78rem;
+  white-space: nowrap;
+}
+
+.totals svg {
+  vertical-align: -1px;
+}

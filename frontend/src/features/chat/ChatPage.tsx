@@ -17,7 +17,7 @@ import {
   Suggestions,
   UserMessage,
 } from "./Message";
-import { useConversation } from "./queries";
+import { useConversation, useStoreFeedbackInCache } from "./queries";
 import { useChat } from "./useChat";
 import styles from "./Chat.module.css";
 
@@ -38,6 +38,7 @@ export function ChatPage() {
   const chat = useChat(conversationId);
   const conversation = useConversation(conversationId, { enabled: !chat.unsavedConversation });
   const { live, streaming } = chat;
+  const storeFeedback = useStoreFeedbackInCache(conversation.data?.id);
 
   const threadRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
@@ -155,6 +156,9 @@ export function ChatPage() {
               locked={streaming}
               onRetry={index === lastAnswerIndex ? retryLast : undefined}
               conversationId={conversation.data?.id}
+              feedback={message.feedback ?? null}
+              feedbackTotals={message.feedback_totals ?? null}
+              onFeedbackStored={(feedback, totals) => storeFeedback(message.id, feedback, totals)}
             />
           ),
         )}

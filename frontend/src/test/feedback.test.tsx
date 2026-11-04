@@ -7,6 +7,7 @@ interface Call {
   method: string;
   path: string;
   body: unknown;
+  headers: Headers;
 }
 
 /** The mock API, recording the feedback requests; `fail` answers them with a 500. */
@@ -15,7 +16,7 @@ function recordingFetch({ fail = false } = {}) {
   const fetch = (input: string, init: RequestInit = {}) => {
     if (input.endsWith("/feedback")) {
       const body = typeof init.body === "string" ? JSON.parse(init.body) : null;
-      calls.push({ method: (init.method ?? "GET").toUpperCase(), path: input, body });
+      calls.push({ method: (init.method ?? "GET").toUpperCase(), path: input, body, headers: new Headers(init.headers) });
       if (fail) {
         return Promise.resolve(
           new Response(JSON.stringify({ type: "about:blank", title: "Internal server error", status: 500 }), {
@@ -63,6 +64,7 @@ describe("answer feedback", () => {
     await waitFor(() => expect(calls).toHaveLength(1));
     expect(calls[0]).toMatchObject({ method: "PUT", body: { rating: "up" } });
     expect(calls[0]?.path).toMatch(/\/conversations\/[0-9a-f-]+\/messages\/[0-9a-f-]+\/feedback$/);
+    expect(calls[0]?.headers.get("X-Rater-Id")).toMatch(/^[0-9a-f-]{36}$/);
 
     fireEvent.change(box, { target: { value: "  Cites the exact clause.  " } });
     fireEvent.click(within(answer).getByRole("button", { name: "Send" }));
@@ -116,6 +118,60 @@ describe("answer feedback", () => {
     fireEvent.click(thumb(answer, "Useful"));
     expect(await within(answer).findByRole("alert")).toHaveTextContent("The feedback could not be saved");
     expect(thumb(answer, "Useful")).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("shows the stored rating when the conversation is opened again", async () => {
+    renderApp({ route: "/chat" });
+    const history = await screen.findByRole("navigation", { name: "Conversation history" });
+    const open = async () => {
+      fireEvent.click(await within(history).findByText("How does the tire supply agreement renew?"));
+      await screen.findByRole("region", { name: "Sources" });
+      return screen.getAllByRole("article", { name: "Answer" })[0] as HTMLElement;
+    };
+
+    fireEvent.click(thumb(await open(), "Not useful"));
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await screen.findByText("Thanks for the feedback");
+
+    fireEvent.click(screen.getByRole("button", { name: /New chat/ }));
+    await screen.findByText("Ask about your contracts");
+    const reopened = await open();
+    expect(thumb(reopened, "Not useful")).toHaveAttribute("aria-pressed", "true");
+    expect(within(reopened).queryByRole("form", { name: "Feedback comment" })).not.toBeInTheDocument();
+  });
+
+  it("shows the totals of every rater, updated after each change", async () => {
+    const { calls, fetch } = recordingFetch();
+    renderApp({ route: "/chat", fetch });
+    const answer = await answered();
+    expect(within(answer).queryByText(/found it useful/)).not.toBeInTheDocument(); // nobody yet
+
+    fireEvent.click(thumb(answer, "Useful"));
+    expect(within(answer).getByText("1 found it useful, 0 did not")).toBeInTheDocument();
+    await waitFor(() => expect(calls).toHaveLength(1));
+
+    // Someone else, in another browser, finds it useful too.
+    const mine = calls[0] as Call;
+    const theirs = new Headers(mine.headers);
+    theirs.set("X-Rater-Id", "00000000-0000-4000-8000-000000000001");
+    await mockFetch(mine.path, { method: "PUT", headers: theirs, body: JSON.stringify({ rating: "up" }) });
+
+    // Changing mine: the counts come back from the server, theirs included.
+    fireEvent.click(thumb(answer, "Not useful"));
+    expect(await within(answer).findByText("1 found it useful, 1 did not")).toBeInTheDocument();
+    expect(thumb(answer, "Not useful")).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("opens the comment box again with the saved comment", async () => {
+    renderApp({ route: "/chat" });
+    const answer = await answered();
+    fireEvent.click(thumb(answer, "Not useful"));
+    fireEvent.change(within(answer).getByLabelText(/What went wrong\?/), { target: { value: "Wrong annex." } });
+    fireEvent.click(within(answer).getByRole("button", { name: "Send" }));
+    await within(answer).findByText("Thanks for the feedback");
+
+    fireEvent.click(within(answer).getByRole("button", { name: "Edit your comment" }));
+    expect(within(answer).getByLabelText(/What went wrong\?/)).toHaveValue("Wrong annex.");
   });
 
   it("rates a not-enough-evidence answer too", async () => {

@@ -2,7 +2,7 @@ import { AlertTriangle, Check, Copy, FileText, MessageCirclePlus, RotateCcw, Sea
 import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import type { ApiError } from "../../api/errors";
-import type { Citation, ConversationMessage, MessageFeedback, PhaseUpdate } from "../../api/types";
+import type { Citation, ConversationMessage, FeedbackTotals, MessageFeedback, PhaseUpdate } from "../../api/types";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { ErrorAlert, Spinner } from "../../components/ui/Feedback";
@@ -75,9 +75,11 @@ interface AssistantMessageProps {
   locked: boolean;
   /** The stored conversation the answer belongs to: without it, it cannot be rated. */
   conversationId?: string;
-  /** What is stored for this answer. */
+  /** What this browser's rater has stored for this answer. */
   feedback?: MessageFeedback | null;
-  onFeedbackStored?: (feedback: MessageFeedback | null) => void;
+  /** Ratings of all the tenant's raters. */
+  feedbackTotals?: FeedbackTotals | null;
+  onFeedbackStored?: (feedback: MessageFeedback | null, totals: FeedbackTotals) => void;
 }
 
 /** Only real answers are rated (not an interrupted turn, which has none). */
@@ -89,6 +91,7 @@ export function AssistantMessage({
   locked,
   conversationId,
   feedback = null,
+  feedbackTotals = null,
   onFeedbackStored,
 }: AssistantMessageProps) {
   const insufficient = message.status === "insufficient_evidence";
@@ -98,6 +101,7 @@ export function AssistantMessage({
     conversationId: conversationId ?? "",
     messageId: message.id,
     initial: feedback,
+    initialTotals: feedbackTotals,
     onStored: onFeedbackStored,
   });
   const ratingRef = useRef<HTMLDivElement>(null);

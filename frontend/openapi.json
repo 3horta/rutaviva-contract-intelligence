@@ -549,7 +549,7 @@
           "conversations"
         ],
         "summary": "Get Conversation",
-        "description": "The conversation with all its messages, in order.",
+        "description": "The conversation with all its messages, in order. Each answer carries the feedback\ntotals, and the caller's own feedback when `X-Rater-Id` is sent.",
         "operationId": "get_conversation_conversations__conversation_id__get",
         "security": [
           {
@@ -566,6 +566,25 @@
               "format": "uuid",
               "title": "Conversation Id"
             }
+          },
+          {
+            "name": "X-Rater-Id",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Include this rater's own feedback on each answer.",
+              "title": "X-Rater-Id"
+            },
+            "description": "Include this rater's own feedback on each answer."
           }
         ],
         "responses": {
@@ -674,6 +693,156 @@
         "responses": {
           "204": {
             "description": "Successful Response"
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/conversations/{conversation_id}/messages/{message_id}/feedback": {
+      "put": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "Rate Message",
+        "description": "Rate an answer (`up` / `down`, optional comment), replacing this rater's earlier\nrating. Returns it with the answer's totals. 404 for a message not in this tenant's\nconversation; 422 for a question, an interrupted turn, an invalid body or a missing or\ninvalid `X-Rater-Id`.",
+        "operationId": "rate_message_conversations__conversation_id__messages__message_id__feedback_put",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Message Id"
+            }
+          },
+          {
+            "name": "X-Rater-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Anonymous id of the rater (a UUID the client keeps).",
+              "title": "X-Rater-Id"
+            },
+            "description": "Anonymous id of the rater (a UUID the client keeps)."
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MessageFeedbackIn"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResult"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "conversations"
+        ],
+        "summary": "Clear Feedback",
+        "description": "Remove this rater's rating of an answer (also when there was none); other raters'\nstay. Returns the answer's totals.",
+        "operationId": "clear_feedback_conversations__conversation_id__messages__message_id__feedback_delete",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "conversation_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Conversation Id"
+            }
+          },
+          {
+            "name": "message_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Message Id"
+            }
+          },
+          {
+            "name": "X-Rater-Id",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Anonymous id of the rater (a UUID the client keeps).",
+              "title": "X-Rater-Id"
+            },
+            "description": "Anonymous id of the rater (a UUID the client keeps)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FeedbackResult"
+                }
+              }
+            }
           },
           "422": {
             "description": "Validation Error",
@@ -1382,6 +1551,47 @@
         ],
         "title": "DocumentStats"
       },
+      "FeedbackResult": {
+        "properties": {
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageFeedbackOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "totals": {
+            "$ref": "#/components/schemas/FeedbackTotals"
+          }
+        },
+        "type": "object",
+        "required": [
+          "feedback",
+          "totals"
+        ],
+        "title": "FeedbackResult",
+        "description": "After a PUT or DELETE: this rater's feedback (null once cleared) and the totals."
+      },
+      "FeedbackTotals": {
+        "properties": {
+          "up": {
+            "type": "integer",
+            "title": "Up",
+            "default": 0
+          },
+          "down": {
+            "type": "integer",
+            "title": "Down",
+            "default": 0
+          }
+        },
+        "type": "object",
+        "title": "FeedbackTotals",
+        "description": "How many raters of the tenant found an answer useful (`up`) or not (`down`)."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -1455,6 +1665,67 @@
           "embedding_model"
         ],
         "title": "HealthResponse"
+      },
+      "MessageFeedbackIn": {
+        "properties": {
+          "rating": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ],
+            "title": "Rating"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "rating"
+        ],
+        "title": "MessageFeedbackIn",
+        "description": "Body of `PUT .../feedback`. A blank comment is stored as none."
+      },
+      "MessageFeedbackOut": {
+        "properties": {
+          "rating": {
+            "type": "string",
+            "enum": [
+              "up",
+              "down"
+            ],
+            "title": "Rating"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          }
+        },
+        "type": "object",
+        "required": [
+          "rating",
+          "comment"
+        ],
+        "title": "MessageFeedbackOut",
+        "description": "One rater's rating of an answer. `comment` is trimmed, null when there is none."
       },
       "MessageOut": {
         "properties": {
@@ -1537,6 +1808,26 @@
             },
             "type": "array",
             "title": "Suggestions"
+          },
+          "feedback": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MessageFeedbackOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "feedback_totals": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/FeedbackTotals"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "created_at": {
             "type": "string",

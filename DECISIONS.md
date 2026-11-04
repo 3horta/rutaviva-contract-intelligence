@@ -153,6 +153,10 @@ are collected at the end once the related milestones are done.
   - React sets `style` through the CSSOM (`element.style.x = …`), which `style-src 'self'` allows. Only `style="…"` written in HTML markup and `<style>` elements are blocked, and the build emits neither.
   - PDF.js probes for `eval` (`new Function("")`) only when `isEvalSupported` is on. The viewer turns it off.
   - The headers are added in `location /` because nginx's `add_header` in a location replaces the server-level ones. The JSON API responses do not need a CSP.
+- **Proxy re-resolves the API:**
+  - A literal `proxy_pass http://api:8000` is resolved once at startup. After the api container is recreated (new IP), nginx answered 502 until restarted.
+  - `proxy_pass` now takes a variable, resolved per request through Docker's DNS (`resolver 127.0.0.11 valid=10s`).
+  - An explicit `rewrite` strips `/api`, since a variable `proxy_pass` no longer does it. The SSE location stays unbuffered.
 - **Verified by:**
   - `curl -I` on the built image (`docker build -f frontend/Dockerfile`, run on the Compose network) shows both headers.
   - The built `index.html` has no inline `<script>` or `<style>`.

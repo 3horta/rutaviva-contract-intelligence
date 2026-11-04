@@ -109,9 +109,15 @@ class LiteLLMProvider(_ChatModel):
 class LiteLLMJSONClient(_ChatModel):
     """`JSONCompletionClient` for the small tasks (the fast model)."""
 
+    # (input tokens, output tokens) of the last call, None when not reported: read by
+    # the callers' spans. One client per job, so it is never shared between threads.
+    last_usage: tuple[int | None, int | None] | None = None
+
     def complete_json(self, system: str, user: str, *, timeout_s: float) -> dict[str, Any]:
         messages = [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        self.last_usage = None
         completion = self._complete(messages, {"type": "json_object"}, timeout_s)
+        self.last_usage = (completion.input_tokens, completion.output_tokens)
         try:
             data = json.loads(strip_code_fence(completion.text))
         except json.JSONDecodeError as exc:

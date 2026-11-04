@@ -201,15 +201,16 @@ are collected at the end once the related milestones are done.
     - Answers refused just below the cut (0.61-0.63), mostly paraphrases: late-payment interest, patrol-car test drive, hidden-damage window, yearly liability cap. They fall inside the calibration range, so the calibration set had too few hard paraphrases to place the cut precisely.
     - The answering chunk was not retrieved, although another chunk of its page was: Safeway's cargo limit, Safeway's claim deadline, the carriers' lien.
     - Another sentence ranked first: the ClearView fee, lost-card liability.
-    - The sentence splitter cuts "8:00 a.m. to 5:00 p.m." after "a.m.".
-    - The extractor drops a clause printed in the bottom page margin (taken as a footer): the tire production-date limit.
+    - The sentence splitter cut "8:00 a.m. to 5:00 p.m." after "a.m.".
+    - The extractor dropped a clause printed in the bottom page margin (taken as a footer): the tire production-date limit.
+- **After fixing the two generic bugs above, run once more (`results_eval_after_fixes_bge-base-en-v1.5.json`): 14/28.** The splitter now ignores abbreviations and lowercase continuations, and the extractor drops only margin lines that repeat across pages or are page numbers. The PFS-hours question now passes. The tire clause is extracted, but a sentence from another contract ranks first. The threshold was **not** changed after seeing the held-out set. Because the fixes were found on it, it is no longer strictly unseen: both numbers are reported.
 - **Rejected:** a separate "high confidence" threshold: a similarity is not a probability of being right, so the fake LLM answers `high` and the service caps it with its retrieval signal.
 - **Consequences and limits:**
   - Keyless mode is good at refusing questions on absent topics and at quoting clauses worded like the question. It misses paraphrases and quotes a neighbouring clause for near misses. An extractive QA model, or a real LLM (`LLM_PROVIDER=litellm`), is the next step; the numbers here are the baseline to beat.
-  - The retrieval, splitter and extractor misses above are not about the rule; each is a separate follow-up.
+  - The retrieval misses above are not about the rule; each is a separate follow-up (more candidates per document, a better sentence ranking).
   - 37 and 28 questions are small samples: ±1 question moves accuracy by about 3 points.
   - Reproducing needs the PDFs, which are not in the repository: download them from the `source_url`s of the manifest (`sample_data/calibration/README.md`).
-- **Verified by:** `sample_data/calibration/results_bge-base-en-v1.5.json` (every rule, the score distributions and the per-question numbers, with no document text), `results_eval_bge-base-en-v1.5.json`, and `tests/unit/test_config.py` (the default configuration starts).
+- **Verified by:** `sample_data/calibration/results_bge-base-en-v1.5.json` (every rule, the score distributions and the per-question numbers, with no document text), `results_eval_bge-base-en-v1.5.json`, `results_eval_after_fixes_bge-base-en-v1.5.json`, and `tests/unit/test_config.py` (the default configuration starts).
 
 ## ADR-012 · Interchangeable providers: keyless by default, LiteLLM with a key
 

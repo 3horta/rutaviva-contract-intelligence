@@ -1,0 +1,317 @@
+{
+  "thresholds": {
+    "minimum": 0.64,
+    "margin": 0.05
+  },
+  "questions": [
+    {
+      "id": "tires-overcharge-reimbursement",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": true,
+      "reason": "answered with the expected text",
+      "cited_expected_page": true,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.8606,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "tires-production-date-limit",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": false,
+      "reason": "answered, but no quote has the expected text (quoted mo_fuel_card_2016.pdf p.4, sc_tires_statewide_2019.pdf p.1)",
+      "cited_expected_page": false,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.7495,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "tires-delivery-over-ten",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": true,
+      "reason": "answered with the expected text",
+      "cited_expected_page": true,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.8229,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "sass-invoice-deadline",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": true,
+      "reason": "answered with the expected text",
+      "cited_expected_page": true,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.7473,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "sass-oil-change-quarts",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": true,
+      "reason": "answered with the expected text",
+      "cited_expected_page": true,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.6859,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "sass-parts-warranty",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": true,
+      "reason": "answered with the expected text",
+      "cited_expected_page": true,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.7308,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "wex-account-suspension",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": true,
+      "reason": "answered with the expected text",
+      "cited_expected_page": true,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.7757,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "wex-clearview-fee",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": false,
+      "reason": "answered, but no quote has the expected text (quoted mo_fuel_card_2016.pdf p.9, mo_wex_fuel_card_2021.pdf p.13)",
+      "cited_expected_page": true,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.7505,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "wex-2021-payment-due",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": true,
+      "reason": "answered with the expected text",
+      "cited_expected_page": true,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.7674,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "wex-2016-pfs-hours",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": true,
+      "reason": "answered with the expected text",
+      "cited_expected_page": true,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.8064,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "safeway-cargo-liability-limit",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": false,
+      "reason": "answered, but no quote has the expected text (quoted carver_delivery_terms.pdf p.2)",
+      "cited_expected_page": false,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.7218,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "carver-late-payment-interest",
+      "kind": "lexical",
+      "answerable": true,
+      "passed": false,
+      "reason": "said not enough information (page retrieved)",
+      "cited_expected_page": false,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.6095,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "wex-lost-card-liability",
+      "kind": "semantic",
+      "answerable": true,
+      "passed": false,
+      "reason": "answered, but no quote has the expected text (quoted mo_wex_fuel_card_2021.pdf p.6, mo_wex_fuel_card_2021.pdf p.10)",
+      "cited_expected_page": false,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.691,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "tires-shop-waiting-time",
+      "kind": "semantic",
+      "answerable": true,
+      "passed": true,
+      "reason": "answered with the expected text",
+      "cited_expected_page": true,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.6988,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "sass-patrol-car-test-drive",
+      "kind": "semantic",
+      "answerable": true,
+      "passed": false,
+      "reason": "said not enough information (page retrieved)",
+      "cited_expected_page": false,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.6118,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "carrier-keep-goods-unpaid",
+      "kind": "semantic",
+      "answerable": true,
+      "passed": false,
+      "reason": "said not enough information (page retrieved)",
+      "cited_expected_page": false,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.6299,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "carver-hidden-damage-window",
+      "kind": "semantic",
+      "answerable": true,
+      "passed": false,
+      "reason": "said not enough information (page retrieved)",
+      "cited_expected_page": false,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.6311,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "safeway-damage-report-deadline",
+      "kind": "semantic",
+      "answerable": true,
+      "passed": false,
+      "reason": "said not enough information (page retrieved)",
+      "cited_expected_page": false,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.5525,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "carver-yearly-total-exposure",
+      "kind": "semantic",
+      "answerable": true,
+      "passed": false,
+      "reason": "said not enough information (page retrieved)",
+      "cited_expected_page": false,
+      "retrieved_expected_page": true,
+      "best_similarity": 0.6244,
+      "answer_in_candidates": true
+    },
+    {
+      "id": "driver-drug-alcohol-testing",
+      "kind": "unanswerable",
+      "answerable": false,
+      "passed": true,
+      "reason": "not enough information, as expected",
+      "cited_expected_page": null,
+      "retrieved_expected_page": null,
+      "best_similarity": 0.5858,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "warehouse-pallet-storage-fee",
+      "kind": "unanswerable",
+      "answerable": false,
+      "passed": true,
+      "reason": "not enough information, as expected",
+      "cited_expected_page": null,
+      "retrieved_expected_page": null,
+      "best_similarity": 0.5689,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "ev-charging-cost",
+      "kind": "unanswerable",
+      "answerable": false,
+      "passed": true,
+      "reason": "not enough information, as expected",
+      "cited_expected_page": null,
+      "retrieved_expected_page": null,
+      "best_similarity": 0.529,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "anti-idling-emissions-rules",
+      "kind": "unanswerable",
+      "answerable": false,
+      "passed": true,
+      "reason": "not enough information, as expected",
+      "cited_expected_page": null,
+      "retrieved_expected_page": null,
+      "best_similarity": 0.5367,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "driver-background-checks",
+      "kind": "unanswerable",
+      "answerable": false,
+      "passed": true,
+      "reason": "not enough information, as expected",
+      "cited_expected_page": null,
+      "retrieved_expected_page": null,
+      "best_similarity": 0.5721,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "tires-mileage-warranty",
+      "kind": "near_miss",
+      "answerable": false,
+      "passed": false,
+      "reason": "answered a question with no answer (quoted mo_wex_fuel_card_2021.pdf p.6, sc_tires_statewide_2019.pdf p.1)",
+      "cited_expected_page": null,
+      "retrieved_expected_page": null,
+      "best_similarity": 0.7098,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "wex-gallon-limit-per-transaction",
+      "kind": "near_miss",
+      "answerable": false,
+      "passed": false,
+      "reason": "answered a question with no answer (quoted mo_fuel_card_2016.pdf p.4, mo_wex_fuel_card_2021.pdf p.6, mo_wex_fuel_card_2021.pdf p.10)",
+      "cited_expected_page": null,
+      "retrieved_expected_page": null,
+      "best_similarity": 0.6634,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "wex-contract-early-termination",
+      "kind": "near_miss",
+      "answerable": false,
+      "passed": false,
+      "reason": "answered a question with no answer (quoted mo_fuel_card_2016.pdf p.5, mo_fuel_card_2016.pdf p.7, mo_wex_fuel_card_2021.pdf p.5)",
+      "cited_expected_page": null,
+      "retrieved_expected_page": null,
+      "best_similarity": 0.6623,
+      "answer_in_candidates": false
+    },
+    {
+      "id": "carver-umbrella-coverage",
+      "kind": "near_miss",
+      "answerable": false,
+      "passed": false,
+      "reason": "answered a question with no answer (quoted carver_delivery_terms.pdf p.2, carver_delivery_terms.pdf p.3)",
+      "cited_expected_page": null,
+      "retrieved_expected_page": null,
+      "best_similarity": 0.7031,
+      "answer_in_candidates": false
+    }
+  ],
+  "embedding_model": "bge-base-en-v1.5@768"
+}

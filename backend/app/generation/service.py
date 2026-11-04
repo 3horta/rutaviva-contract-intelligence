@@ -71,18 +71,33 @@ from app.core.tracing import (
     ANSWER_INSUFFICIENT,
     DOCUMENT_ID,
     EMBEDDING_MODEL,
+    GEN_AI_CONVERSATION_ID,
     GEN_AI_INPUT_TOKENS,
+    GEN_AI_OPERATION_NAME,
     GEN_AI_OUTPUT_TOKENS,
-    GEN_AI_REQUEST_MODEL,
+    GEN_AI_OUTPUT_TYPE,
+    GEN_AI_PROMPT_NAME,
+    GEN_AI_RESPONSE_MODEL,
+    GEN_AI_RETRIEVAL_DOCUMENTS,
+    GEN_AI_RETRIEVAL_TOP_K,
+    GEN_AI_WORKFLOW_NAME,
     LLM_CONTENT_FILTERED,
     LLM_LATENCY_MS,
     LLM_RETRIES,
     LLM_TOKENS_ESTIMATED,
     LLM_VALIDATION_ERROR,
+    OP_CHAT,
+    OP_EMBEDDINGS,
+    OP_INVOKE_WORKFLOW,
+    OP_RETRIEVAL,
     PROMPT_INJECTION_FLAGGED,
     TENANT_ID,
+    WORKFLOW_CONTRACT_QA,
     current_trace_id,
     link_to,
+    model_ref,
+    model_span,
+    retrieved_documents,
     set_attributes,
     span,
 )
@@ -90,6 +105,7 @@ from app.generation.guardrails import sources_disagree
 from app.generation.validate import ValidatedAnswer, ValidationFailure, validate_answer
 from app.providers.embeddings.base import EmbeddingsProvider
 from app.providers.llm.base import ContextChunk, LLMProvider, PromptInput
+from app.providers.llm.traced import PROMPT_ANSWER
 from app.retrieval.hybrid import RetrievedChunk, search
 from app.retrieval.judge import KeepAll, RelevanceJudge
 from app.schemas.query import (
@@ -186,20 +202,35 @@ def answer_with_usage(
     settings: Settings,
     on_phase: PhaseCallback | None = None,
     judge: RelevanceJudge | None = None,
+    conversation_id: uuid.UUID | None = None,
 ) -> AnswerOutcome:
     """`answer_question` plus the token usage of the LLM calls. `judge` defaults to none
-    (keyless mode: the retrieved chunks go to the LLM unchanged)."""
+    (keyless mode: the retrieved chunks go to the LLM unchanged). `conversation_id` only
+    labels the trace (`gen_ai.conversation.id`); nothing is stored here."""
     started = time.perf_counter()
     notify = on_phase or _no_phase
-    with span("query.answer", **{TENANT_ID: str(tenant_id)}) as answer_span:
+    with span(
+        f"{OP_INVOKE_WORKFLOW} {WORKFLOW_CONTRACT_QA}",
+        **{
+            GEN_AI_OPERATION_NAME: OP_INVOKE_WORKFLOW,
+            GEN_AI_WORKFLOW_NAME: WORKFLOW_CONTRACT_QA,
+            GEN_AI_CONVERSATION_ID: str(conversation_id) if conversation_id else None,
+            TENANT_ID: str(tenant_id),
+        },
+    ) as answer_span:
         notify("searching")
-        with span("query.embed", **{EMBEDDING_MODEL: embeddings.model_id}):
+        with model_span(
+            OP_EMBEDDINGS, embeddings.model_id, **{EMBEDDING_MODEL: embeddings.model_id}
+        ):
             try:
                 query_vector = embeddings.embed_query(question)
             except ProviderError as exc:
                 raise _to_app_error(exc) from exc
 
-        with span("query.retrieve"):
+        with span(
+            OP_RETRIEVAL,
+            **{GEN_AI_OPERATION_NAME: OP_RETRIEVAL, GEN_AI_RETRIEVAL_TOP_K: settings.retrieval_k},
+        ) as retrieval_span:
             candidates = search(
                 session,
                 tenant_id=tenant_id,
@@ -207,6 +238,21 @@ def answer_with_usage(
                 question=question,
                 embedding_model=embeddings.model_id,
                 settings=settings,
+            )
+            # Ids and scores only (the reranker's score when it ran, else the RRF one).
+            set_attributes(
+                retrieval_span,
+                **{
+                    GEN_AI_RETRIEVAL_DOCUMENTS: retrieved_documents(
+                        [
+                            (
+                                str(c.chunk_id),
+                                c.rerank_score if c.rerank_score is not None else c.score,
+                            )
+                            for c in candidates
+                        ]
+                    )
+                },
             )
 
         selection = (judge or KeepAll()).judge(question, candidates)
@@ -312,8 +358,14 @@ def _generate_validated(
         is_last = attempt == max_attempts
         prompt = PromptInput(question=question, chunks=context, feedback=feedback, attempt=attempt)
         notify("drafting")
-        with span(
-            "llm.generate", **{GEN_AI_REQUEST_MODEL: llm.model_id, LLM_RETRIES: attempt - 1}
+        with model_span(
+            OP_CHAT,
+            llm.model_id,
+            **{
+                GEN_AI_PROMPT_NAME: PROMPT_ANSWER,
+                GEN_AI_OUTPUT_TYPE: "json",
+                LLM_RETRIES: attempt - 1,
+            },
         ) as llm_span:
             try:
                 result = llm.generate(prompt, timeout_s=settings.llm_timeout_s)
@@ -347,6 +399,7 @@ def _generate_validated(
             set_attributes(
                 llm_span,
                 **{
+                    GEN_AI_RESPONSE_MODEL: model_ref(result.model).name,
                     GEN_AI_INPUT_TOKENS: result.input_tokens,
                     GEN_AI_OUTPUT_TOKENS: result.output_tokens,
                     LLM_TOKENS_ESTIMATED: result.tokens_estimated,

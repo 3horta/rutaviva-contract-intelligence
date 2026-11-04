@@ -170,7 +170,7 @@ def search(
     results = select_chunks(
         candidates, k=settings.retrieval_k, max_per_document=settings.max_chunks_per_document
     )
-    # Counts only, on the caller's span (`query.retrieve`): never chunk content.
+    # Counts only, on the caller's span (`retrieval`): never chunk content.
     set_attributes(
         **{
             RETRIEVAL_K: settings.retrieval_k,

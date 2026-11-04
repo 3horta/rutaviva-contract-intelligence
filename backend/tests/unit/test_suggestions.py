@@ -154,8 +154,9 @@ def test_the_call_is_traced(monkeypatch) -> None:
         QUESTION, ANSWER, CITATIONS
     )
 
-    [suggest_span] = [s for s in exporter.get_finished_spans() if s.name == "llm.suggest"]
-    assert suggest_span.attributes["gen_ai.request.model"] == "gemini/fast"
+    [suggest_span] = [s for s in exporter.get_finished_spans() if s.name == "chat fast"]
+    assert suggest_span.attributes["gen_ai.request.model"] == "fast"
+    assert suggest_span.attributes["gen_ai.prompt.name"] == "follow_up_suggestions"
     assert suggest_span.attributes["gen_ai.usage.input_tokens"] == 200
     assert suggest_span.attributes["gen_ai.usage.output_tokens"] == 30
     assert "llm.latency_ms" in suggest_span.attributes

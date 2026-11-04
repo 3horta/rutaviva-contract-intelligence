@@ -6,14 +6,31 @@ collector). Exporting is set up once per process in `app/core/telemetry.py`.
 
 Rule: attributes carry ids, counts, sizes, timings and model names. Never document
 content, prompts, answers or keys.
+
+GenAI spans follow the OpenTelemetry GenAI semantic conventions (status: development;
+github.com/open-telemetry/semantic-conventions-genai), so any GenAI-aware backend reads
+them without configuration (ADR-018):
+
+- `invoke_workflow contract_qa` (INTERNAL): one answer. A fixed workflow, not an agent:
+  the code, not a model, decides the steps, so there is no `invoke_agent` span.
+- `embeddings {model}` (CLIENT): one embedding call (the question, or a batch of chunks).
+- `retrieval` (INTERNAL): the hybrid search; ids and scores of what it returned.
+- `chat {model}` (CLIENT): one LLM call; `gen_ai.prompt.name` says which prompt
+  template (`answer`, `relevance_judge`, `resolve_follow_up`, ...).
+- `tools/call {tool}` (`execute_tool`): an MCP tool call, emitted by the MCP SDK.
+
+Content attributes the conventions define as opt-in (`gen_ai.input.messages`,
+`gen_ai.output.messages`, `gen_ai.retrieval.query.text`) are never recorded.
 """
 
-from collections.abc import Iterator
+import json
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass
 from typing import Any
 
 from opentelemetry import trace
-from opentelemetry.trace import Span, SpanContext, Status, StatusCode, TraceFlags
+from opentelemetry.trace import Span, SpanContext, SpanKind, Status, StatusCode, TraceFlags
 
 _tracer = trace.get_tracer("rutaviva")
 
@@ -45,9 +62,20 @@ RERANK_LATENCY_MS = "retrieval.rerank.latency_ms"
 RERANK_FAILED = "retrieval.rerank.failed"
 
 # GenAI semantic conventions where they exist; `llm.*` for what they do not cover.
+GEN_AI_OPERATION_NAME = "gen_ai.operation.name"
+GEN_AI_PROVIDER_NAME = "gen_ai.provider.name"
 GEN_AI_REQUEST_MODEL = "gen_ai.request.model"
+GEN_AI_RESPONSE_MODEL = "gen_ai.response.model"
+GEN_AI_OUTPUT_TYPE = "gen_ai.output.type"
+GEN_AI_PROMPT_NAME = "gen_ai.prompt.name"
+GEN_AI_WORKFLOW_NAME = "gen_ai.workflow.name"
+GEN_AI_CONVERSATION_ID = "gen_ai.conversation.id"
+GEN_AI_EMBEDDINGS_DIMENSION = "gen_ai.embeddings.dimension.count"
+GEN_AI_RETRIEVAL_TOP_K = "gen_ai.retrieval.top_k"
+GEN_AI_RETRIEVAL_DOCUMENTS = "gen_ai.retrieval.documents"
 GEN_AI_INPUT_TOKENS = "gen_ai.usage.input_tokens"
 GEN_AI_OUTPUT_TOKENS = "gen_ai.usage.output_tokens"
+ERROR_TYPE = "error.type"
 LLM_TOKENS_ESTIMATED = "llm.tokens.estimated"
 LLM_LATENCY_MS = "llm.latency_ms"
 LLM_RETRIES = "llm.retries"
@@ -60,21 +88,97 @@ ANSWER_CITATIONS = "answer.citations"
 PROMPT_INJECTION_FLAGGED = "prompt_injection.flagged"
 
 
+# `gen_ai.operation.name` values used here.
+OP_CHAT = "chat"
+OP_EMBEDDINGS = "embeddings"
+OP_RETRIEVAL = "retrieval"
+OP_INVOKE_WORKFLOW = "invoke_workflow"
+
+# The answer pipeline, as `gen_ai.workflow.name`.
+WORKFLOW_CONTRACT_QA = "contract_qa"
+
+# `gen_ai.provider.name`: Gemini through its AI Studio endpoint is the convention's
+# `gcp.gemini`. The keyless providers are not services, so they get custom values.
+PROVIDER_GEMINI = "gcp.gemini"
+PROVIDER_FAKE = "rutaviva.fake"
+PROVIDER_LOCAL = "rutaviva.local"
+
+
 @contextmanager
-def span(name: str, **attributes: Any) -> Iterator[Span]:
+def span(name: str, *, kind: SpanKind = SpanKind.INTERNAL, **attributes: Any) -> Iterator[Span]:
     """Start a child span of the current context.
 
     Attribute keys use the constants above; pass them with `**{ATTR: value}`. `None`
-    values are skipped. Exceptions are recorded and the span is marked as an error,
-    then re-raised.
+    values are skipped. Exceptions are recorded, the span is marked as an error with
+    `error.type` (see `_error_type`), then re-raised.
     """
-    with _tracer.start_as_current_span(name, record_exception=True) as current:
+    with _tracer.start_as_current_span(name, kind=kind, record_exception=True) as current:
         set_attributes(current, **attributes)
         try:
             yield current
         except Exception as exc:
-            current.set_status(Status(StatusCode.ERROR, type(exc).__name__))
+            error_type = _error_type(exc)
+            current.set_attribute(ERROR_TYPE, error_type)
+            current.set_status(Status(StatusCode.ERROR, error_type))
             raise
+
+
+def _error_type(exc: BaseException) -> str:
+    """The class of the original error: when an error was translated (`raise
+    GatewayTimeout(...) from ProviderTimeoutError`), the provider's one, which is what the
+    GenAI conventions ask for."""
+    cause = exc.__cause__
+    return type(cause if isinstance(cause, Exception) else exc).__name__
+
+
+@dataclass(frozen=True)
+class ModelRef:
+    """A model id of this app, as the GenAI conventions name it."""
+
+    provider: str
+    name: str
+    dimensions: int | None = None
+
+
+def model_ref(model_id: str) -> ModelRef:
+    """`gemini/gemini-3.5-flash` -> (`gcp.gemini`, `gemini-3.5-flash`);
+    `bge-base-en-v1.5@768` -> (`rutaviva.local`, `bge-base-en-v1.5`, 768). Embedding ids
+    carry their dimensions after `@` (they are part of the index's identity)."""
+    name, _, dims = model_id.partition("@")
+    if name.startswith("gemini/"):
+        provider, name = PROVIDER_GEMINI, name.removeprefix("gemini/")
+    elif name.startswith("gemini-"):
+        provider = PROVIDER_GEMINI
+    elif name.startswith("fake-"):
+        provider = PROVIDER_FAKE
+    else:
+        provider = PROVIDER_LOCAL
+    return ModelRef(provider, name, int(dims) if dims.isdigit() else None)
+
+
+@contextmanager
+def model_span(operation: str, model_id: str, **attributes: Any) -> Iterator[Span]:
+    """A CLIENT span for one model call: `{operation} {model}` (`chat`, `embeddings`),
+    with `gen_ai.operation.name`, `gen_ai.provider.name` and `gen_ai.request.model`."""
+    model = model_ref(model_id)
+    with span(
+        f"{operation} {model.name}",
+        kind=SpanKind.CLIENT,
+        **{
+            GEN_AI_OPERATION_NAME: operation,
+            GEN_AI_PROVIDER_NAME: model.provider,
+            GEN_AI_REQUEST_MODEL: model.name,
+            GEN_AI_EMBEDDINGS_DIMENSION: model.dimensions,
+        },
+        **attributes,
+    ) as current:
+        yield current
+
+
+def retrieved_documents(items: Sequence[tuple[str, float]]) -> str:
+    """`gen_ai.retrieval.documents` as a JSON string (allowed on spans): ids and scores
+    only, never text."""
+    return json.dumps([{"id": item_id, "score": round(score, 6)} for item_id, score in items])
 
 
 def set_attributes(target: Span | None = None, **attributes: Any) -> None:

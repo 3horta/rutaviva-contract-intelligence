@@ -176,6 +176,7 @@ def run_turn(
             settings=settings,
             on_phase=on_phase,
             judge=judge,
+            conversation_id=plan.conversation_id,
         )
         return _save_turn(session, tenant_id, plan, resolved, outcome)
 

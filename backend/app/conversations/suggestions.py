@@ -16,10 +16,11 @@ import re
 from collections.abc import Sequence
 from typing import Protocol
 
-from app.conversations.fast_model import as_data, complete_json_traced, one_line
+from app.conversations.fast_model import as_data, one_line
 from app.core.config import Settings
 from app.providers.llm import get_json_client
 from app.providers.llm.base import JSONCompletionClient
+from app.providers.llm.traced import PROMPT_FOLLOW_UP_SUGGESTIONS, complete_json_traced
 from app.schemas.query import Citation
 
 logger = logging.getLogger(__name__)
@@ -111,7 +112,7 @@ class LLMSuggestionGenerator:
         try:
             reply = complete_json_traced(
                 self.client,
-                "llm.suggest",
+                PROMPT_FOLLOW_UP_SUGGESTIONS,
                 SUGGEST_SYSTEM_PROMPT,
                 build_suggest_prompt(question, answer, citations),
                 timeout_s=self.timeout_s,

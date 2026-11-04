@@ -320,7 +320,9 @@ def test_flagged_chunk_is_excluded_from_the_llm_and_warned(retrieved, monkeypatc
         (INJECTED.chunk_id, True),
         (CHUNK.chunk_id, False),
     ]
-    [answer_span] = [s for s in exporter.get_finished_spans() if s.name == "query.answer"]
+    [answer_span] = [
+        s for s in exporter.get_finished_spans() if s.name == "invoke_workflow contract_qa"
+    ]
     assert answer_span.attributes["prompt_injection.flagged"] == 1
 
 

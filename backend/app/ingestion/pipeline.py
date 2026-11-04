@@ -321,7 +321,9 @@ def _embed(provider: EmbeddingsProvider, texts: Sequence[str], batch_size: int) 
     calls = 0
     for start in range(0, len(texts), batch_size):
         batch = texts[start : start + batch_size]
-        batch_vectors = provider.embed_documents(batch)
+        # One GenAI `embeddings {model}` CLIENT span per call (ADR-018).
+        with tracing.model_span(tracing.OP_EMBEDDINGS, provider.model_id):
+            batch_vectors = provider.embed_documents(batch)
         calls += 1
         if len(batch_vectors) != len(batch):
             raise PermanentProviderError(f"expected {len(batch)} vectors, got {len(batch_vectors)}")

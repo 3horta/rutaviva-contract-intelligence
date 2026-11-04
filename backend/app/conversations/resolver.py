@@ -19,6 +19,7 @@ from typing import Protocol
 from app.core.config import Settings
 from app.providers.llm import get_json_client
 from app.providers.llm.base import JSONCompletionClient
+from app.providers.llm.traced import PROMPT_RESOLVE_FOLLOW_UP, complete_json_traced
 
 logger = logging.getLogger(__name__)
 
@@ -154,7 +155,9 @@ class LLMQuestionResolver:
         if not turns:
             return unchanged(question)  # nothing to resolve against: no call
         try:
-            reply = self.client.complete_json(
+            reply = complete_json_traced(
+                self.client,
+                PROMPT_RESOLVE_FOLLOW_UP,
                 RESOLVER_SYSTEM_PROMPT,
                 build_resolver_prompt(question, turns),
                 timeout_s=self.timeout_s,

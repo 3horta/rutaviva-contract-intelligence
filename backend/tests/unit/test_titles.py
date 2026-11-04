@@ -5,6 +5,7 @@ import pytest
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+from opentelemetry.trace import SpanKind
 
 from app.conversations import titles
 from app.conversations.titles import (
@@ -119,8 +120,14 @@ def test_the_call_is_traced_with_model_latency_and_tokens(monkeypatch) -> None:
         QUESTION, ANSWER
     )
 
-    [title_span] = [s for s in exporter.get_finished_spans() if s.name == "llm.title"]
-    assert title_span.attributes["gen_ai.request.model"] == "gemini/fast"
+    # A GenAI `chat {model}` CLIENT span, named after its prompt template (ADR-018).
+    [title_span] = [s for s in exporter.get_finished_spans() if s.name == "chat fast"]
+    assert title_span.kind == SpanKind.CLIENT
+    assert title_span.attributes["gen_ai.operation.name"] == "chat"
+    assert title_span.attributes["gen_ai.provider.name"] == "gcp.gemini"
+    assert title_span.attributes["gen_ai.request.model"] == "fast"
+    assert title_span.attributes["gen_ai.prompt.name"] == "conversation_title"
+    assert title_span.attributes["gen_ai.output.type"] == "json"
     assert title_span.attributes["gen_ai.usage.input_tokens"] == 120
     assert title_span.attributes["gen_ai.usage.output_tokens"] == 9
     assert title_span.attributes["llm.latency_ms"] >= 0
@@ -136,6 +143,7 @@ def test_a_failed_call_marks_the_span_as_an_error(monkeypatch) -> None:
 
     LLMTitleGenerator(ScriptedClient(ProviderTimeoutError("slow"))).title(QUESTION, ANSWER)
 
-    [title_span] = [s for s in exporter.get_finished_spans() if s.name == "llm.title"]
+    [title_span] = [s for s in exporter.get_finished_spans() if s.name == "chat fast"]
     assert not title_span.status.is_ok
+    assert title_span.attributes["error.type"] == "ProviderTimeoutError"
     assert "gen_ai.usage.input_tokens" not in title_span.attributes

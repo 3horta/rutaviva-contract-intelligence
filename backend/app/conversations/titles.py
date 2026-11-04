@@ -12,10 +12,11 @@ import logging
 import re
 from typing import Protocol
 
-from app.conversations.fast_model import as_data, complete_json_traced, one_line
+from app.conversations.fast_model import as_data, one_line
 from app.core.config import Settings
 from app.providers.llm import get_json_client
 from app.providers.llm.base import JSONCompletionClient
+from app.providers.llm.traced import PROMPT_CONVERSATION_TITLE, complete_json_traced
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ class LLMTitleGenerator:
         try:
             reply = complete_json_traced(
                 self.client,
-                "llm.title",
+                PROMPT_CONVERSATION_TITLE,
                 TITLE_SYSTEM_PROMPT,
                 build_title_prompt(question, answer),
                 timeout_s=self.timeout_s,

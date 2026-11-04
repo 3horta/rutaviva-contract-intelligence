@@ -27,6 +27,7 @@ from app.core.tracing import JUDGE_CANDIDATES, JUDGE_FAILED, JUDGE_KEPT, set_att
 from app.generation.prompt import escape_document_text
 from app.providers.llm import get_json_client
 from app.providers.llm.base import JSONCompletionClient
+from app.providers.llm.traced import PROMPT_RELEVANCE_JUDGE, complete_json_traced
 from app.retrieval.hybrid import RetrievedChunk
 
 logger = logging.getLogger(__name__)
@@ -113,8 +114,12 @@ class LLMRelevanceJudge:
             return JudgeOutcome(chunks=kept, judged=True)
 
     def _relevant_ids(self, question: str, chunks: list[RetrievedChunk]) -> set[str]:
-        reply = self.client.complete_json(
-            JUDGE_SYSTEM_PROMPT, build_judge_prompt(question, chunks), timeout_s=self.timeout_s
+        reply = complete_json_traced(
+            self.client,
+            PROMPT_RELEVANCE_JUDGE,
+            JUDGE_SYSTEM_PROMPT,
+            build_judge_prompt(question, chunks),
+            timeout_s=self.timeout_s,
         )
         ids = reply.get("relevant_ids") if isinstance(reply, dict) else None
         if not isinstance(ids, list) or not all(isinstance(item, str) for item in ids):

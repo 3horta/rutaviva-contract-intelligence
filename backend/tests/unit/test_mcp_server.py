@@ -285,7 +285,7 @@ def test_app_spans_nest_under_the_sdk_tool_span(settings, no_database, monkeypat
     monkeypatch.setattr(sdk_otel, "_tracer", provider.get_tracer("mcp"))
 
     def list_documents(*_args: Any, **_kwargs: Any) -> DocumentsResult:
-        with tracing.span("query.retrieve"):
+        with tracing.span("retrieval"):
             return DocumentsResult(total=0, documents=[])
 
     monkeypatch.setattr(mcp_tools, "list_documents", list_documents)
@@ -297,7 +297,7 @@ def test_app_spans_nest_under_the_sdk_tool_span(settings, no_database, monkeypat
 
     spans = {span.name: span for span in exporter.get_finished_spans()}
     tool_span = spans["tools/call list_documents"]
-    app_span = spans["query.retrieve"]
+    app_span = spans["retrieval"]
     assert tool_span.attributes["gen_ai.operation.name"] == "execute_tool"
     assert tool_span.attributes["gen_ai.tool.name"] == "list_documents"
     assert tool_span.attributes["tenant.id"] == str(TENANT)

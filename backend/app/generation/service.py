@@ -1,10 +1,11 @@
 """Answer a question from the tenant's documents: embed -> retrieve -> generate -> validate.
 
-"Not enough information" is decided in exactly three places, never by a score threshold:
+"Not enough information" is decided in exactly four places, never by a score threshold:
   (a) retrieval returns nothing: the LLM is not even called;
-  (b) the LLM itself declares `insufficient_evidence`;
-  (c) its output fails validation on every attempt (we never show an unchecked answer).
-In all three the answer is `INSUFFICIENT_EVIDENCE_MESSAGE` with status
+  (b) every retrieved chunk is flagged as prompt injection (see below): same;
+  (c) the LLM itself declares `insufficient_evidence`;
+  (d) its output fails validation on every attempt (we never show an unchecked answer).
+In all four the answer is `INSUFFICIENT_EVIDENCE_MESSAGE` with status
 `insufficient_evidence`, confidence `low` and no citations.
 
 Attempts: up to `1 + llm_max_retries`, shared by:
@@ -28,6 +29,14 @@ Confidence = min(confidence given by the LLM, retrieval signal). The retrieval s
 `high` only when the top chunk was found by BOTH the vector and the full-text branch
 (semantically close AND sharing the question's words); otherwise `medium`. So a single
 branch match can never produce a `high` answer.
+
+Untrusted content (ADR-013):
+- Chunks flagged as prompt injection at indexing are removed from the LLM context (for
+  every provider) but still listed in `details.retrieved` with `flagged=true`. If any
+  was removed, the answer carries the warning `prompt_injection`.
+- When the quotes come from two or more documents that state different values for the
+  same kind of quantity (`guardrails.sources_disagree`), the answer keeps both
+  citations, its confidence is capped at `medium` and it carries `sources_disagree`.
 """
 
 import logging
@@ -61,18 +70,22 @@ from app.core.tracing import (
     LLM_RETRIES,
     LLM_TOKENS_ESTIMATED,
     LLM_VALIDATION_ERROR,
+    PROMPT_INJECTION_FLAGGED,
     TENANT_ID,
     current_trace_id,
     link_to,
     set_attributes,
     span,
 )
+from app.generation.guardrails import sources_disagree
 from app.generation.validate import ValidatedAnswer, ValidationFailure, validate_answer
 from app.providers.embeddings.base import EmbeddingsProvider
 from app.providers.llm.base import ContextChunk, LLMProvider, PromptInput
 from app.retrieval.hybrid import RetrievedChunk, search
 from app.schemas.query import (
     INSUFFICIENT_EVIDENCE_MESSAGE,
+    WARNING_PROMPT_INJECTION,
+    WARNING_SOURCES_DISAGREE,
     AnswerDetails,
     Citation,
     Confidence,
@@ -171,25 +184,36 @@ def answer_with_usage(
 
         _link_sources(chunks)
 
-        if not chunks:
-            nothing = _Generation(answer=None, attempts=0, tokens_in=0, tokens_out=0)
+        # Flagged chunks never reach the LLM; `chunks` keeps them for `details`.
+        usable = [chunk for chunk in chunks if not chunk.flagged_injection]
+        flagged = len(chunks) - len(usable)
+        warnings = [WARNING_PROMPT_INJECTION] if flagged else []
+        set_attributes(answer_span, **{PROMPT_INJECTION_FLAGGED: flagged})
+
+        def insufficient(reason: InsufficientReason, generation: _Generation) -> AnswerOutcome:
             return _insufficient(
-                answer_span, tenant_id, "no_results", chunks, nothing, llm, started
+                answer_span, tenant_id, reason, chunks, generation, llm, started, warnings
             )
 
-        generation = _generate_validated(question, chunks, llm, settings, notify)
+        nothing = _Generation(answer=None, attempts=0, tokens_in=0, tokens_out=0)
+        if not chunks:
+            return insufficient("no_results", nothing)
+        if not usable:
+            return insufficient("all_flagged", nothing)
+
+        generation = _generate_validated(question, usable, llm, settings, notify)
         answer, attempts = generation.answer, generation.attempts
         if answer is None:
-            return _insufficient(
-                answer_span, tenant_id, "validation_failed", chunks, generation, llm, started
-            )
+            return insufficient("validation_failed", generation)
         if answer.insufficient_evidence:
-            return _insufficient(
-                answer_span, tenant_id, "llm_declared", chunks, generation, llm, started
-            )
+            return insufficient("llm_declared", generation)
 
-        citations = _enrich_citations(answer, chunks)
-        confidence = _combined_confidence(answer.confidence, chunks)
+        citations = _enrich_citations(answer, usable)
+        confidence = _combined_confidence(answer.confidence, usable)
+        if sources_disagree(citations):
+            # Degrade, don't pick: both sources stay cited.
+            confidence = min(confidence, "medium", key=_CONFIDENCE_ORDER.index)
+            warnings.append(WARNING_SOURCES_DISAGREE)
         set_attributes(
             answer_span,
             **{
@@ -203,9 +227,11 @@ def answer_with_usage(
             extra={
                 "tenant_id": str(tenant_id),
                 "chunks": len(chunks),
+                "flagged_chunks": flagged,
                 "citations": len(citations),
                 "attempts": attempts,
                 "confidence": confidence,
+                "warnings": warnings,
             },
         )
         response = QueryResponse(
@@ -214,7 +240,7 @@ def answer_with_usage(
             status="answered",
             confidence=confidence,
             citations=citations,
-            warnings=[],
+            warnings=warnings,
             details=_details(chunks, attempts, None, llm, started),
         )
         return AnswerOutcome(response, generation.tokens_in, generation.tokens_out)
@@ -371,6 +397,7 @@ def _details(
                 chunk_id=chunk.chunk_id,
                 score=chunk.score,
                 found_by=_found_by(chunk),
+                flagged=chunk.flagged_injection,
             )
             for chunk in chunks
         ],
@@ -392,6 +419,7 @@ def _insufficient(
     generation: _Generation,
     llm: LLMProvider,
     started: float,
+    warnings: list[str],
 ) -> AnswerOutcome:
     attempts = generation.attempts
     set_attributes(
@@ -400,7 +428,12 @@ def _insufficient(
     )
     logger.info(
         "query.insufficient",
-        extra={"tenant_id": str(tenant_id), "reason": reason, "attempts": attempts},
+        extra={
+            "tenant_id": str(tenant_id),
+            "reason": reason,
+            "attempts": attempts,
+            "warnings": warnings,
+        },
     )
     response = QueryResponse(
         conversation_id=None,
@@ -408,7 +441,7 @@ def _insufficient(
         status="insufficient_evidence",
         confidence="low",
         citations=[],
-        warnings=[],
+        warnings=warnings,
         details=_details(chunks, attempts, reason, llm, started),
     )
     return AnswerOutcome(response, generation.tokens_in, generation.tokens_out)

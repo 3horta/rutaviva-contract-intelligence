@@ -17,6 +17,7 @@ are collected at the end once the related milestones are done.
 | [ADR-008](#adr-008--text-extraction-pdfplumber-by-default-docling-optional) | Text extraction: pdfplumber by default, Docling optional | Accepted |
 | [ADR-009](#adr-009--cpu-inference-load-models-once-bound-the-threads) | CPU inference: load models once, bound the threads | Accepted |
 | [ADR-010](#adr-010--chat-backend-streamed-phases-persisted-turns-resolved-follow-ups) | Chat backend: streamed phases, persisted turns, resolved follow-ups | Accepted |
+| [ADR-013](#adr-013--untrusted-content-flag-exclude-and-warn-disagreeing-sources-degrade-confidence) | Untrusted content: flag, exclude and warn; disagreeing sources degrade confidence | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
@@ -169,6 +170,28 @@ are collected at the end once the related milestones are done.
   - Answering follow-ups without context: "and the cap?" alone retrieves noise.
   - A separate query-log table: the assistant message carries the metadata, and the trace has the detail.
 - **Verified by:** `tests/integration/test_conversations_api.py`: event order, error event with nothing persisted, errors before the stream, persistence, retry, follow-up retrieval, and 404 for another tenant's conversation everywhere. Also `tests/unit/test_resolver.py`.
+
+## ADR-013 · Untrusted content: flag, exclude and warn; disagreeing sources degrade confidence
+
+- **Context:** contracts come from suppliers, so their text is untrusted. The sample fuel agreement hides, in its Exhibit C, an instruction to the assistant to claim there is no minimum volume. The tire agreement and its SLA exhibit state different delivery terms and penalties, and each claims to prevail.
+- **Decision:**
+  - **Document content is data, never instructions.** The prompt already delimits each chunk and says so (rule 3); the validator only accepts citations of chunks that were given to the model, quoted verbatim.
+  - **Suspicious instructions: index, flag, exclude, warn.**
+    - At indexing, `guardrails.detect_injection` runs on every chunk before the store transaction and sets `chunks.flagged_injection`. The document is still indexed: the rest of it is legitimate data. The ingest span gets `prompt_injection.flagged` (a count) and the log `document.injection_flagged` (a count, never the text).
+    - At query time, flagged chunks are removed from the LLM context, for every provider. They stay in `details.retrieved` with `flagged: true`. The answer carries the warning `prompt_injection`, and the answer span gets `prompt_injection.flagged`. If only flagged chunks were retrieved, the answer is insufficient evidence (`insufficient_reason: all_flagged`), still with the warning.
+  - **Disagreeing sources: degrade, don't pick.** When the quotes of an answer come from at least two documents and give different values for the same kind of quantity, both citations stay, confidence is capped at `medium` and the answer carries `sources_disagree`.
+  - **`warnings` are machine codes** (`prompt_injection`, `sources_disagree`). `WARNING_LABELS` in `app/schemas/query.py` holds the text the UI shows.
+- **The detector:** fourteen named regular expressions, in English and Spanish, over text with case, accents and whitespace normalised. Examples: "ignore/disregard previous instructions", "you are now", "you must act as", a `System:`/`Assistant:` role marker at the start of a sentence, "reveal your prompt", "do not tell the user", "respond only with", "ignora las instrucciones", "eres ahora", "responde únicamente". Each pattern needs the "addressed to the assistant" part, so "Supplier shall follow Rutaviva's written instructions" and "act as an independent contractor" are not flagged. Across the eight sample contracts it flags only Exhibit C.
+- **Limits, said plainly:**
+  - It is pattern-based, so it can be bypassed: paraphrases, other languages, an instruction split across two chunks, text in images. It is one layer of defence in depth, not a guarantee; the delimiting in the prompt and the citation validation still apply to whatever it misses.
+  - It flags whole chunks. A legitimate clause in the same chunk as the injection is also excluded (in the sample, clause C.3 of Exhibit C).
+  - Documents indexed before this change are not reprocessed: their chunks stay unflagged until they are reindexed.
+  - The disagreement rule compares numbers, not meaning. It compares the sets of percentages, of "N hours/days" and of amounts of money in the quotes of each document. It misses contradictions in words ("monthly" vs "weekly"). It also fires when two contracts legitimately have different values for different things, which only costs confidence and adds a warning; it never changes the answer.
+- **Rejected:**
+  - Rejecting the whole document: the legitimate clauses (the 180,000-gallon minimum) live in it.
+  - An LLM classifier for injections: it costs a call per chunk, it is not deterministic, and it is itself injectable.
+  - Picking one source when they disagree (for example, "the exhibit prevails"): that is a legal judgement for a person.
+- **Verified by:** `tests/unit/test_guardrails.py` (12 injection variants detected, 8 ordinary clauses not, every sample contract scanned, the tire agreement vs SLA exhibit sentences and negative cases), `tests/unit/test_answer_service.py` (flagged chunk excluded with a warning, only flagged → insufficient, disagreeing sources → `medium` with a warning) and `tests/integration/test_injection.py` (the real fuel PDF is ingested with pdfplumber and Exhibit C is flagged; `/query` answers 180,000 gallons from page 1, never quotes the injection and warns `prompt_injection`).
 
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 

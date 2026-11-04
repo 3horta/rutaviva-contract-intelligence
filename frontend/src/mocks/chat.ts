@@ -6,7 +6,8 @@
  * Try: a question about the contracts ("What is the payment term in the fuel
  * agreement?"), one they cannot answer ("What is the weather in Laredo?"),
  * one with "outage" (503) or "timeout" (504) in it, which fail mid-stream,
- * and a question about several suppliers, whose answer carries a warning.
+ * a question about several suppliers (warning "sources_disagree") and one about
+ * "instructions" (a flagged fragment, warning "prompt_injection").
  */
 import type {
   AnswerDetails,
@@ -135,7 +136,13 @@ export function answer(question: string, docs: Searchable[], previousQuestion: s
     };
   }
 
-  const cited = ranked.slice(0, 3);
+  // A question about "instructions" shows the guardrail: the last fragment is
+  // flagged as a possible prompt injection and never cited.
+  const injected = /\binstructions?\b/i.test(question) && retrieved.length > 1;
+  const last = retrieved.at(-1);
+  if (injected && last) retrieved[retrieved.length - 1] = { ...last, flagged: true };
+
+  const cited = ranked.slice(0, Math.min(3, injected ? ranked.length - 1 : ranked.length));
   const citations: Citation[] = cited.map((hit) => ({
     chunk_id: hit.chunk.id,
     document_id: hit.doc.id,
@@ -146,11 +153,10 @@ export function answer(question: string, docs: Searchable[], previousQuestion: s
   const confidence = cited.length >= 3 && best >= 3 ? "high" : cited.length >= 2 ? "medium" : "low";
   const documentCount = new Set(cited.map((hit) => hit.doc.id)).size;
 
+  // Machine codes, as the backend sends them (the UI has the texts).
   const warnings: string[] = [];
-  if (documentCount > 1) {
-    warnings.push(`The answer combines clauses from ${documentCount} contracts; check that each one applies.`);
-  }
-  if (confidence === "low") warnings.push("Only one fragment supports this answer.");
+  if (injected) warnings.push("prompt_injection");
+  if (documentCount > 1) warnings.push("sources_disagree");
 
   const text = [
     `Based on ${documentCount === 1 ? "the contract" : "your contracts"}, this is what applies:`,

@@ -45,7 +45,16 @@ describe("chat", () => {
     renderApp({ route: "/chat" });
     await ask("What insurance must suppliers carry?");
     const warnings = await screen.findByRole("list", { name: "Warnings" });
-    expect(warnings).toHaveTextContent(/combines clauses from \d contracts/);
+    // The API sends a code; the label is shown.
+    expect(warnings).toHaveTextContent("The cited documents give different values; check which one applies.");
+  });
+
+  it("marks a fragment excluded as a possible prompt injection", async () => {
+    renderApp({ route: "/chat" });
+    await ask("Do the fuel contracts contain instructions about payment terms?");
+    const warnings = await screen.findByRole("list", { name: "Warnings" });
+    expect(warnings).toHaveTextContent("A passage that looked like instructions to the assistant was ignored.");
+    expect(screen.getByText("Excluded")).toBeInTheDocument();
   });
 
   it("stops an answer and says so", async () => {

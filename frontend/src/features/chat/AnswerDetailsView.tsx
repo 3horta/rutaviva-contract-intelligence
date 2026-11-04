@@ -1,3 +1,4 @@
+import { ShieldAlert } from "lucide-react";
 import { Link } from "react-router-dom";
 import type { AnswerDetails } from "../../api/types";
 import { formatDuration } from "../../lib/format";
@@ -14,6 +15,14 @@ function steps(details: AnswerDetails): string[] {
   if (details.insufficient_reason === "no_results") {
     result.push("Nothing relevant was found, so no answer was drafted");
     return result;
+  }
+  if (details.insufficient_reason === "all_flagged") {
+    result.push("Every fragment found looked like instructions to the assistant and was excluded");
+    return result;
+  }
+  const flagged = details.retrieved.filter((chunk) => chunk.flagged).length;
+  if (flagged > 0) {
+    result.push(`Excluded ${flagged} ${flagged === 1 ? "fragment" : "fragments"} that looked like instructions`);
   }
   result.push(
     details.attempts > 1 ? `Drafted the answer (${details.attempts} attempts)` : "Drafted the answer",
@@ -58,11 +67,17 @@ export function AnswerDetailsView({ details }: { details: AnswerDetails }) {
             </thead>
             <tbody>
               {details.retrieved.map((chunk) => (
-                <tr key={chunk.chunk_id}>
+                <tr key={chunk.chunk_id} className={chunk.flagged ? styles.flaggedRow : undefined}>
                   <td>
                     <Link to={`/documents/${chunk.document_id}?page=${chunk.page}&chunk=${chunk.chunk_id}`}>
                       {chunk.document_filename}
                     </Link>
+                    {chunk.flagged && (
+                      <span className={styles.flagged} title="Looked like instructions to the assistant; not used">
+                        <ShieldAlert size={12} aria-hidden="true" />
+                        Excluded
+                      </span>
+                    )}
                   </td>
                   <td>{chunk.page}</td>
                   <td>{chunk.score.toFixed(3)}</td>

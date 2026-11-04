@@ -23,6 +23,15 @@ export const CONFIDENCE: Record<Confidence, { label: string; tone: Tone }> = {
   low: { label: "Low confidence", tone: "warning" },
 };
 
+/** Warnings come as machine codes; same texts as the backend's WARNING_LABELS. */
+export const WARNING_LABELS: Readonly<Record<string, string>> = {
+  prompt_injection: "A passage that looked like instructions to the assistant was ignored.",
+  sources_disagree: "The cited documents give different values; check which one applies.",
+};
+
+/** An unknown code (a newer backend) is shown as it comes. */
+export const warningLabel = (code: string): string => WARNING_LABELS[code] ?? code;
+
 export const FOUND_BY_LABELS: Record<FoundBy, string> = {
   vector: "Semantic",
   full_text: "Keyword",

@@ -27,8 +27,8 @@ const EXAMPLE_QUESTIONS = [
 export function ChatPage() {
   const { conversationId } = useParams();
   const navigate = useNavigate();
-  const conversation = useConversation(conversationId);
   const chat = useChat(conversationId);
+  const conversation = useConversation(conversationId, { enabled: !chat.unsavedConversation });
   const { live, streaming } = chat;
 
   const threadRef = useRef<HTMLDivElement>(null);

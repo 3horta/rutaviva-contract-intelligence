@@ -30,11 +30,12 @@ export function useConversationList(search: string) {
   });
 }
 
-export function useConversation(id: string | undefined) {
+/** `enabled: false` keeps a conversation that is not stored yet from being fetched. */
+export function useConversation(id: string | undefined, { enabled = true }: { enabled?: boolean } = {}) {
   return useQuery({
     queryKey: conversationKeys.detail(id ?? ""),
     queryFn: ({ signal }) => getConversation(id ?? "", signal),
-    enabled: Boolean(id),
+    enabled: Boolean(id) && enabled,
   });
 }
 

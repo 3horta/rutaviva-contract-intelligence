@@ -125,6 +125,16 @@ function outcomeFor(filename: string): FailureCode | null {
   return null;
 }
 
+/** FileReader rather than Blob.arrayBuffer, which jsdom (the tests) lacks. */
+function readBytes(file: File): Promise<Uint8Array> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(new Uint8Array(reader.result as ArrayBuffer));
+    reader.onerror = () => reject(reader.error);
+    reader.readAsArrayBuffer(file);
+  });
+}
+
 async function upload(docs: MockDocument[], body: BodyInit | null | undefined): Promise<Response> {
   const file = body instanceof FormData ? body.get("file") : null;
   if (!(file instanceof File)) return problem(422, "Validation error", "The form field \"file\" is required.");
@@ -146,7 +156,7 @@ async function upload(docs: MockDocument[], body: BodyInit | null | undefined): 
     return json(response, 200);
   }
 
-  const bytes = new Uint8Array(await file.arrayBuffer());
+  const bytes = await readBytes(file);
   const now = Date.now();
   const id = `0e${randomHex(6)}-${randomHex(4)}-4000-8000-${randomHex(12)}`;
   const failure = outcomeFor(file.name);
@@ -324,7 +334,7 @@ async function handle(path: string, init: RequestInit): Promise<Response> {
 /** Network latency of the mock: 1 in the browser, 0 in tests. */
 let latencyScale = 1;
 
-async function mockFetch(input: string, init: RequestInit = {}): Promise<Response> {
+export async function mockFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const path = input.startsWith(API_PREFIX) ? input.slice(API_PREFIX.length) : input;
   const isUpload = (init.method ?? "GET").toUpperCase() === "POST";
   const latency = isUpload ? 500 + Math.random() * 1_200 : 120 + Math.random() * 280;

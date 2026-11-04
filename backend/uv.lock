@@ -3450,6 +3450,7 @@ dependencies = [
     { name = "alembic" },
     { name = "celery", extra = ["redis"] },
     { name = "fastapi" },
+    { name = "litellm" },
     { name = "opentelemetry-api" },
     { name = "opentelemetry-exporter-otlp-proto-grpc" },
     { name = "opentelemetry-instrumentation-celery" },
@@ -3481,7 +3482,6 @@ ml = [
 spike = [
     { name = "cryptography" },
     { name = "google-genai" },
-    { name = "litellm" },
 ]
 
 [package.metadata]
@@ -3489,6 +3489,7 @@ requires-dist = [
     { name = "alembic", specifier = ">=1.14" },
     { name = "celery", extras = ["redis"], specifier = ">=5.4" },
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "litellm", specifier = "==1.106.6" },
     { name = "opentelemetry-api", specifier = ">=1.30" },
     { name = "opentelemetry-exporter-otlp-proto-grpc", specifier = ">=1.30" },
     { name = "opentelemetry-instrumentation-celery", specifier = ">=0.51b0" },
@@ -3520,7 +3521,6 @@ ml = [
 spike = [
     { name = "cryptography", specifier = "<49" },
     { name = "google-genai", specifier = ">=1.30" },
-    { name = "litellm", specifier = ">=1.80" },
 ]
 
 [[package]]

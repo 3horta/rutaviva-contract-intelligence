@@ -7,6 +7,9 @@ dependencies = [
     "alembic>=1.14",
     "celery[redis]>=5.4",
     "fastapi>=0.115",
+    # Real LLM and embedding providers (Gemini). Imported lazily: keyless mode never loads
+    # it. Exact version: the one the provider spike was run with.
+    "litellm==1.106.6",
     "opentelemetry-api>=1.30",
     "opentelemetry-exporter-otlp-proto-grpc>=1.30",
     "opentelemetry-instrumentation-celery>=0.51b0",
@@ -47,7 +50,6 @@ ml = [
 spike = [
     "cryptography<49",
     "google-genai>=1.30",
-    "litellm>=1.80",
 ]
 
 [tool.uv]
@@ -79,6 +81,9 @@ known-third-party = ["alembic"]
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-ra"
+markers = [
+    "live: calls a real paid provider; skipped unless its key is in the environment",
+]
 filterwarnings = [
     # Starlette recommends httpx2 for its TestClient; httpx is kept as the well-known
     # standard. Only this specific warning is silenced.

@@ -91,7 +91,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   3. **Delivery counter:** `attempts`. After the maximum the document is marked `failed` (`worker_lost`), so a PDF that crashes the worker is not re-delivered in a loop.
 - **Rejected:** a periodic sweeper (`celery beat`). It is one more service, and the lease already covers re-delivery.
 - **Consequences:** a `CHECK` makes the database enforce that a document is `processing` if and only if it has a lease.
-- **Verified by:** `test_lease_only_exists_while_processing`. The task tests come with the ingestion milestone.
+- **Verified by:** `test_lease_only_exists_while_processing`, and the Celery task in `tests/integration/test_process_task.py`: `test_transient_error_once_is_retried_and_ends_ready` and `test_transient_error_always_ends_failed_after_max_retries`.
 
 ## ADR-005 · Closed set of failure codes
 
@@ -134,7 +134,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
 - **Context:** the brief suggests Docling, and it was the first choice (layout model, reading order, table structure, element coordinates). Measured on the target machine (Docker with 4 CPUs and 4 GB), with the model loaded once and the table-structure stage off, it still took **~70 s per page**: a 4-page sample contract needed 292 s just to convert, beyond the 240 s task soft limit.
 - **Decision:**
   - `TEXT_EXTRACTOR=pdfplumber` is the default. It reads the PDF text layer with coordinates: **~1 s for a 3-page contract**, no models, on every platform.
-  - Lines in the top/bottom page margins (running headers and footers) are dropped.
+  - Running headers and footers are dropped: a line in the top/bottom page margin whose text (digits ignored) repeats in the margin of another page, or that is only a page number. A margin line that does not repeat is kept, since a real clause can be printed there (ADR-011).
   - Blocks split at paragraph gaps, numbered clauses and headings (short all-caps lines or SECTION/ARTICLE/EXHIBIT…), which chunking uses as the section name.
   - `TEXT_EXTRACTOR=docling` keeps Docling, models baked into the image, OCR off.
 - **Rejected:**

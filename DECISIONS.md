@@ -24,6 +24,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
 | [ADR-015](#adr-015--reranking-a-local-cross-encoder-between-fusion-and-selection) | Reranking: a local cross-encoder between fusion and selection | Accepted |
 | [ADR-016](#adr-016--demo-sign-in-per-tenant) | Demo sign-in per tenant | Accepted |
 | [ADR-017](#adr-017--an-mcp-server-for-ai-agents-read-only-same-jwt-same-isolation) | An MCP server for AI agents: read-only, same JWT, same isolation | Accepted |
+| [ADR-018](#adr-018--ai-spans-follow-the-opentelemetry-genai-semantic-conventions) | AI spans follow the OpenTelemetry GenAI semantic conventions | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
@@ -180,7 +181,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
     - A provider failure is a different path: it ends with `error` and stores nothing. `POST /query` cannot see a disconnect (a sync handler) and is unchanged.
   - **Generated title:** after the first turn of a new conversation, the fast model writes a title (≤ 60 characters, plain text). It replaces the provisional one (the question cut to 80 characters) only if the user has not renamed it meanwhile; a rename is not activity, so `updated_at` is kept. Keyless mode, a failure, a timeout or an unusable reply keep the question.
   - **Suggested follow-ups:** for an `answered` turn, the fast model gets the standalone question, the answer and the cited documents' names and pages (delimited as data, escaped; no other tenant's data, no chunk text) and proposes up to 3 questions. Empty, duplicate, too long (> 150 characters) and placeholder items, and the question itself, are dropped. They are stored in the assistant message's `details` JSON (no migration) and returned as `MessageOut.suggestions`, so a reload shows them. Keyless mode and any failure give none, never an `error`.
-  - **After the result, on purpose:** the title and the suggestions are two more calls (`llm.title`, `llm.suggest` spans, with model, latency and tokens), made only once the turn is committed and `result` sent. They never delay or fail an answer. `POST /query` runs them as a background task: stored for the next reload, not in its response.
+  - **After the result, on purpose:** the title and the suggestions are two more calls (GenAI `chat {model}` spans with `gen_ai.prompt.name` `conversation_title` / `follow_up_suggestions`, with model, latency and tokens; ADR-018), made only once the turn is committed and `result` sent. They never delay or fail an answer. `POST /query` runs them as a background task: stored for the next reload, not in its response.
   - **Follow-ups:** before retrieval, a question resolver rewrites the question as standalone using the last 3 turns.
     - With a real LLM, an LLM-based resolver. Earlier turns are delimited as data, and any failure leaves the question unchanged, so a conversation never makes a query fail.
     - In keyless mode, a deterministic rule: a question with ≤ 2 content words, or starting with a connector or pronoun, is searched together with the previous standalone question.
@@ -296,7 +297,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - Contradiction 1/2. The penalty question cites both documents and is capped at `medium`. In the delivery-term question both clauses are retrieved, but the extractive stand-in keeps only the sentences within the calibrated margin of the best one (ADR-011), and the agreement's "72 business hours" scores below it: it answers with the exhibit only, at `high`. Marked `soft` with that reason. Lowering the margin to pass it would tune the calibration to one question; with a real LLM both chunks reach the model.
   - Semantic 4 `WARN`: the paraphrases score just below the calibrated threshold and get "not enough information". That is the designed trade-off of ADR-011 (refuse rather than guess), not a retrieval miss: the right chunk is retrieved.
   - Two bugs found by the first run were in the **harness**, not the system: the number check flagged the page the answer quotes ("page 2") as an invented number, and documents ingested before injection flagging existed were reused as duplicates. The first is fixed (citation pages count as grounded); the second only affects a long-lived local database (the CI stack starts empty).
-- **In CI:** the `e2e` job builds the stack with no `.env`, runs `make eval` (fails on any hard case), checks that the corrupt and scanned PDFs fail with `corrupt_pdf` / `empty_pdf`, and checks the traces through Jaeger's API (`scripts/check_traces.py`: the upload trace spans API and worker; `query.answer` links to an ingestion trace).
+- **In CI:** the `e2e` job builds the stack with no `.env`, runs `make eval` (fails on any hard case), checks that the corrupt and scanned PDFs fail with `corrupt_pdf` / `empty_pdf`, and checks the traces through Jaeger's API (`scripts/check_traces.py`: the upload trace spans API and worker and has `embeddings` spans; the question's trace has the GenAI workflow, `embeddings`, `retrieval` and the answer's `chat {model}` span with provider, model and tokens, and links to an ingestion trace; ADR-018).
 - **Verified by:** `tests/unit/test_eval_lib.py`: each check passing and failing, number normalisation, the leak check on citations and on retrieved-only chunks, soft to `WARN`, repeat to `FLAKY`, the exit code, document polling with a timeout, and loading the sample set.
 
 ## ADR-015 · Reranking: a local cross-encoder between fusion and selection
@@ -373,7 +374,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - The token expires after 24 h, so the client has to be configured again with a new one. There is no refresh, and no revocation (as in the API).
   - The allowed hosts are fixed to localhost. Serving `/mcp` under another hostname needs them configured (not done).
   - Search results carry contract text to the client's model. That is the purpose, and it is the tenant's own text, but it leaves the app's guardrails: the client's model is not checked by our citation validation. Only `ask_contracts` answers are validated.
-  - The SDK adds its own OpenTelemetry span per call (`tools/call <tool>`, with `gen_ai.operation.name = execute_tool` and `gen_ai.tool.name`); the app adds `tenant.id` to it. The app's spans (`query.answer`, `query.retrieve`) nest under it, in the same trace.
+  - The SDK adds its own OpenTelemetry span per call (`tools/call <tool>`, with `gen_ai.operation.name = execute_tool` and `gen_ai.tool.name`); the app adds `tenant.id` to it. The app's spans (`invoke_workflow contract_qa`, `retrieval`, `chat {model}`, ADR-018) nest under it, in the same trace.
 - **Verified by:**
   - `backend/tests/unit/test_mcp_server.py`, over HTTP through an ASGI transport with the SDK's own client:
     - the catalogue: four read-only tools with output schemas, no tenant argument, `k` capped at `RETRIEVAL_K`, and the prompt;
@@ -389,6 +390,43 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
     - another tenant's passage "does not exist";
     - a flagged passage is withheld;
     - `ask_contracts` answers with a checked citation and stores no conversation.
+
+## ADR-018 · AI spans follow the OpenTelemetry GenAI semantic conventions
+
+- **Context:** the traces already had model, latency and tokens, but under the app's own names (`llm.generate`, `llm.title`, `query.answer`), with GenAI attribute names only for the model and tokens. The judge and the follow-up resolver made LLM calls with no span of their own. A backend that reads GenAI telemetry (for example Datadog LLM Observability or Langfuse) could not tell those spans were model calls, nor sum their tokens, without custom configuration.
+- **Decision:** name and attribute the AI spans as the [OpenTelemetry GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai) define them. One helper (`tracing.model_span`) makes every model call the same way.
+  - **`invoke_workflow contract_qa`** (INTERNAL) is one answer, with `gen_ai.workflow.name` and `gen_ai.conversation.id`. It replaces `query.answer` and keeps its attributes and its links to the ingestion traces.
+  - **`embeddings {model}`** (CLIENT) is one embedding call: the question, and each batch of chunks inside `ingest.embed`. It carries `gen_ai.embeddings.dimension.count`.
+  - **`retrieval`** (INTERNAL) is the hybrid search, with `gen_ai.retrieval.top_k` and `gen_ai.retrieval.documents` (chunk ids and scores, never text). It replaces `query.retrieve`.
+  - **`chat {model}`** (CLIENT) is every LLM call: the answer (one span per attempt), the relevance judge, the follow-up resolver, the title and the suggestions. Each carries `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.output.type = json`, `gen_ai.usage.*`, and **`gen_ai.prompt.name`**, which says which prompt template it was (`answer`, `relevance_judge`, `resolve_follow_up`, `conversation_title`, `follow_up_suggestions`).
+  - **`error.type`** on every failed span. It holds the original error class: a provider timeout raised as a 504 is recorded as `ProviderTimeoutError`.
+  - **Provider names:**
+    - Gemini through its AI Studio endpoint is the conventions' `gcp.gemini`.
+    - The keyless models are not services, so they get custom values: `rutaviva.local` (BGE on the CPU) and `rutaviva.fake`.
+    - Model ids are split as `gemini/<model>` and `<model>@<dimensions>` (`tracing.model_ref`).
+  - **App-specific attributes keep their own namespace** (`llm.latency_ms`, `llm.retries`, `llm.validation_error`, `llm.tokens.estimated`, `retrieval.*`, `answer.*`): the conventions do not define them.
+  - Together with the MCP SDK's `tools/call {tool}` span (`execute_tool`, ADR-017), an agent's tool call, the workflow and its model calls form one GenAI trace.
+- **Rejected:**
+  - **An `invoke_agent` span:** this is a fixed workflow. The code decides the steps, not a model, and `invoke_workflow` is the conventions' name for exactly that.
+  - **Recording content** (`gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.retrieval.query.text`): the conventions make them opt-in because they carry user data. The rule stays "ids, counts, timings and model names only".
+  - **An auto-instrumentation library** (OpenLLMetry, OpenInference) over LiteLLM: it would trace the provider calls but not the keyless models, the workflow, the retrieval or which prompt each call was. It would also add a dependency, and some of them record prompts by default.
+  - **Keeping the old names next to the new ones:** two names for one span. The old names only lived in this repository: `check_traces.py`, the tests and the docs.
+- **Consequences:**
+  - Jaeger searches change: operation `invoke_workflow contract_qa` instead of `query.answer`.
+  - The conventions are still marked *development*, so names can change upstream. They live in one module (`app/core/tracing.py`) and one helper, so following a change is a local edit.
+  - `gen_ai.provider.name` comes from the model id. A model routed through another provider (for example Vertex AI through LiteLLM) would need a new prefix rule.
+- **Verified by:**
+  - `backend/tests/unit/test_genai_spans.py`:
+    - an answer's span tree (workflow, then `embeddings`, `retrieval` and `chat` as its children);
+    - kinds and required attributes, and one `chat` span per attempt with `llm.validation_error`;
+    - `error.type` with the provider's error;
+    - no question, chunk text or answer in any attribute, and no opt-in content attribute;
+    - one span per ingestion batch;
+    - the judge's and the resolver's `chat` spans;
+    - the model-id mapping.
+  - `test_titles.py` and `test_suggestions.py`: their `chat` spans.
+  - `test_check_traces.py`: the CI trace check passes on conforming Jaeger traces and fails on the old names, a missing attribute, a missing answer call or a missing link.
+  - In CI, `scripts/check_traces.py` runs against the real stack's Jaeger.
 
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 
@@ -571,8 +609,8 @@ Each case gets a different response:
 
 - **Traces (OpenTelemetry → Collector → Jaeger):**
   - **One trace per upload**, from `POST /documents` through the Celery task: extract, chunk, embed, store, and each SQL statement.
-  - **One trace per question:** the conversation turn, the query embedding, retrieval (hits per branch), the relevance judge (real LLM only), `llm.generate` and the answer with its validation.
-  - The question's `query.answer` span **links** to the ingestion trace of each document it used. They are separate traces because a question is not caused by an upload, but one click leads from one to the other.
+  - **One trace per question**, named by the OpenTelemetry GenAI conventions (ADR-018): the conversation turn, the workflow `invoke_workflow contract_qa`, `embeddings {model}`, `retrieval` (hits per branch, ids and scores of the results), the relevance judge (real LLM only), and one `chat {model}` span per LLM attempt, with the answer's validation.
+  - The question's workflow span **links** to the ingestion trace of each document it used. They are separate traces because a question is not caused by an upload, but one click leads from one to the other.
   - **Attributes:** tenant, document id, pages, chunk count, embedding model and batch size, task attempt and failure code, retrieval counts, LLM model, `llm.latency_ms`, `gen_ai.usage.input_tokens` / `output_tokens`, `llm.tokens.estimated` (true when the provider reports no usage), retries, validation errors, confidence, citation count, insufficient evidence, flagged-injection count.
 - **Logs:** JSON, one event per line, with `trace_id` and `span_id`. The two are joined by the trace id (shown in the chat's "How it was answered").
   - Each line logged inside a span is also added to it as a **span event** (same name and fields, minus the exception text), so Jaeger shows the logs of a request inside its trace. The uvicorn access line is not copied: the server span already says the same.

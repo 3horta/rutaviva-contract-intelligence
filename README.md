@@ -81,17 +81,38 @@ The collector receives the spans and forwards them; Jaeger (all-in-one, in-memor
 
 **One trace per upload: HTTP request → Celery task → SQL.** `POST /documents` stores the file and enqueues the task; the Celery instrumentation puts the trace context in the message, so the worker's spans (extract, chunk, embed, store) continue the same trace. Every SQL statement, in the API and in the worker, is a child span of whatever step ran it.
 
-**One trace per question, linked to the uploads.** `POST /query/stream` has its own trace: query embedding, hybrid retrieval, relevance judge (real LLM only), `llm.generate` and the validated answer. A question is not caused by an upload, and it can come days later, so it is not forced into the upload's trace. Instead, its `query.answer` span carries a **span link** to the ingestion trace of each document it used: in Jaeger, one click goes from an answer to how its sources were indexed.
+**One trace per question, linked to the uploads.** `POST /query/stream` has its own trace. A question is not caused by an upload, and it can come days later, so it is not forced into the upload's trace. Instead, its workflow span carries a **span link** to the ingestion trace of each document it used: in Jaeger, one click goes from an answer to how its sources were indexed.
 
-**Attributes** (ids, counts and timings only, never document content or prompts):
+**GenAI semantic conventions.** The AI spans follow the OpenTelemetry [GenAI semantic conventions](https://github.com/open-telemetry/semantic-conventions-genai), so a backend that reads GenAI telemetry (for example Datadog LLM Observability or Langfuse) recognises the model calls, their tokens and the workflow without configuration; Jaeger shows them as ordinary spans (ADR-018). A question looks like this:
+
+```
+POST /query/stream
+└─ conversation.turn
+   ├─ chat gemini-3.5-flash          gen_ai.prompt.name=resolve_follow_up   (follow-ups, real LLM)
+   └─ invoke_workflow contract_qa    gen_ai.workflow.name, gen_ai.conversation.id, link → ingestion
+      ├─ embeddings bge-base-en-v1.5
+      ├─ retrieval                   gen_ai.retrieval.top_k, gen_ai.retrieval.documents (ids, scores)
+      │  └─ retrieval.rerank
+      ├─ retrieval.judge
+      │  └─ chat gemini-3.5-flash    gen_ai.prompt.name=relevance_judge     (real LLM)
+      └─ chat gemini-3.5-flash       gen_ai.prompt.name=answer, one span per attempt
+```
+
+- `chat {model}` and `embeddings {model}` are CLIENT spans with `gen_ai.operation.name`, `gen_ai.provider.name` (`gcp.gemini`; `rutaviva.local` / `rutaviva.fake` for the keyless models), `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.output.type` and `gen_ai.usage.*`. A failed call has `error.type`, the provider's error class.
+- Keyless, the chat span is `chat fake-extractive-v3` and there are no judge or resolver calls. After the answer, the title and the suggestions are `chat` spans too (`conversation_title`, `follow_up_suggestions`).
+- During ingestion each embedding batch is an `embeddings {model}` span inside `ingest.embed`.
+- An MCP tool call is a `tools/call {tool}` span (`execute_tool`, emitted by the MCP SDK), with the same tree below it.
+- It is a **workflow, not an agent**: the code decides the steps, so there is no `invoke_agent` span.
+
+**Attributes** (ids, counts and timings only, never document content or prompts; the conventions' opt-in content attributes such as `gen_ai.input.messages` are never set):
 
 | Attribute | Where |
 |---|---|
 | `tenant.id` | every authenticated request |
 | `document.id`, `document.pages`, `chunks.count` | upload and ingestion |
-| `retrieval.vec_hits`, `retrieval.fts_hits`, `retrieval.results` | retrieval |
-| `gen_ai.request.model`, `llm.latency_ms`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `llm.tokens.estimated` | `llm.generate` |
-| `answer.confidence`, `answer.citations`, `prompt_injection.flagged` | the answer |
+| `retrieval.vec_hits`, `retrieval.fts_hits`, `retrieval.results`, `gen_ai.retrieval.documents` | `retrieval` |
+| `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.prompt.name`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `llm.latency_ms`, `llm.tokens.estimated`, `llm.retries`, `llm.validation_error` | `chat {model}` |
+| `answer.confidence`, `answer.citations`, `prompt_injection.flagged` | `invoke_workflow contract_qa` |
 
 **Logs.** JSON, one event per line, with the current `trace_id` and `span_id`, the same ids as in Jaeger. API errors (`application/problem+json`) and the chat's "How it was answered" panel show the `trace_id` too, so `docker compose logs api worker | grep <trace_id>` gives every log line of a request. The same lines are also in Jaeger: each one logged inside a span is added to that span as an event (open a span → "Logs"). Jaeger stores no logs of its own; stdout stays the full log.
 

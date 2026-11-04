@@ -43,6 +43,13 @@ export function ChatPage() {
   const lastAnswerIndex = messages.at(-1)?.role === "assistant" ? messages.length - 1 : -1;
   const title = conversation.data?.title || "New chat";
 
+  // Another conversation opens at its end, with nothing left from the previous one.
+  // A layout effect declared first, so it runs before the scroll below.
+  useLayoutEffect(() => {
+    following.current = true;
+    setExportError(null);
+  }, [conversationId]);
+
   // Follows the thread as it grows, unless the user scrolled up to read.
   useLayoutEffect(() => {
     const thread = threadRef.current;

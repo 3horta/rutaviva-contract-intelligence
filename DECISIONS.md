@@ -2,8 +2,8 @@
 
 Short ADRs, written when each milestone closes. Each one states the context, the decision,
 the alternative that was rejected and the consequences, plus how it is verified.
-Answers to the four open questions of the brief, known limits and how generative AI was used
-are collected at the end once the related milestones are done.
+The answers to the brief's four open questions, the main trade-offs, the known limits and
+how generative AI was used are at the end: [Answers to the open questions](#answers-to-the-open-questions).
 
 | # | Decision | Status |
 |---|---|---|
@@ -227,6 +227,7 @@ are collected at the end once the related milestones are done.
   - **Content filter** (`ContentFilteredError`, from LiteLLM's `ContentPolicyViolationError` or finish reason `content_filter`): an outcome, not an outage. The answer is "insufficient evidence" with the warning `content_filtered`, never retried and never a 503.
   - **No secrets or content in logs:** LiteLLM's debug info, verbose and message logging are off and its loggers stay at WARNING; prompts and answers are never logged.
   - **Gemini embeddings:** `RETRIEVAL_DOCUMENT` for chunks and `RETRIEVAL_QUERY` for questions, 768 dimensions, every vector L2-normalised (Gemini's truncated vectors are not unit length), batches of `EMBEDDING_BATCH_SIZE` (at most 100). Gemini reports no token usage for embeddings, so tokens are estimated and flagged.
+- **Spike before building it** (2026-11-03, `scripts/spike_providers.py`): `gemini-3.5-flash` returned valid schema-constrained JSON through LiteLLM (≈ 4 s); the newest flash model answered 503 "high demand" three times in a row, so 429 and 503 are treated as transient. `gemini-embedding-001` honours 768 dimensions and the task type, but its vectors are not unit length (norm ≈ 0.59), hence the normalisation.
 - **Switching to Gemini:** `LLM_PROVIDER=litellm`, `LLM_MODEL=gemini/<model>`, optionally `LLM_FAST_MODEL=gemini/<cheaper model>`, `GEMINI_API_KEY=…`; for embeddings also `EMBEDDINGS_PROVIDER=gemini`. Changing the embedding model requires reindexing: documents store their `embedding_model` and search only compares vectors of the same model.
 - **Rejected:**
   - A judge in keyless mode: no model to judge with, and the identity is honest.
@@ -418,3 +419,111 @@ are collected at the end once the related milestones are done.
 
   - The pages are small: dashboard 7.4 kB, documents 8.2 kB, detail 10.6 kB, chat 34.8 kB.
   - What remains in the main chunk is mostly React, React Router and TanStack Query.
+
+---
+
+## Answers to the open questions
+
+### 1. Chunking and retrieval, and how quality is justified without a large evaluation set
+
+- **Chunking** (`app/ingestion/chunking.py`):
+  - A chunk never crosses a page, so every citation has an exact page and a box to highlight.
+  - Blocks of a page are packed up to **1,000 characters**, with **150 characters of overlap** within the page. A long block is split at sentence boundaries.
+  - Each chunk is embedded with a short prefix: document title, page and nearest heading. A clause like "The penalty is 1.5% per day" is then found under "Late delivery" even though it never says "late delivery".
+  - **Why these numbers:** a contract clause is typically 300–900 characters, so 1,000 holds a whole clause and its heading. That suits citations: one chunk, one clause, one quote. 150 characters is about one sentence, enough that a sentence cut by the packing is whole in one of the two chunks. They are reasoned defaults, not tuned: with 21 questions, tuning them would fit the question set.
+- **Retrieval** (`app/retrieval/hybrid.py`, `ranking.py`):
+  - One SQL query, two branches, both filtered by tenant: pgvector cosine (HNSW) and PostgreSQL full text, with an OR tsquery ranked by `ts_rank_cd`.
+  - The branches are fused with **weighted Reciprocal Rank Fusion**: weights 0.6 vector, 0.4 full text, `k = 60`, 40 candidates per branch, 8 results.
+    - **Why RRF:** it fuses ranks, not scores, and cosine and `ts_rank_cd` are on unrelated scales.
+    - **Why vector-leaning:** users paraphrase ("walk away from the deal early" vs "terminate for convenience"). Full text still matters for exact identifiers and figures ("RV-IRP-7", "PM-A"). A chunk found by both branches wins.
+  - Then at most 3 chunks per document and near-duplicates dropped within a document, so one long contract cannot fill the context and two contracts in disagreement both reach the model.
+  - **Reranking:** no cross-encoder (weight and latency on a CPU). With a real LLM, a relevance judge on the fast model narrows the candidates and never empties them (ADR-012). In keyless mode the fused order is used.
+- **Justifying quality without a large set:** check behaviours, not scores (ADR-014).
+  - A small, hand-checked question set covers each designed behaviour: exact lookups, paraphrases, unanswerable questions, tenant isolation, contradictions and injection. The eval harness checks each one through the real API, including that **no chunk of another tenant is even retrieved**.
+  - The keyless "not enough information" threshold was calibrated on 14 public contracts split by document, and evaluated once on the held-out ones (ADR-011). Both numbers are reported, the weak ones included.
+  - A score over 21 questions would mostly measure noise; a failed behaviour check explains itself in one line.
+
+### 2. Tenant isolation
+
+A `tenant_id` column on every tenant table, filtered in every query, **plus PostgreSQL Row Level Security, forced**, under a non-owner role. The risks and costs of each option are in ADR-002. In short:
+- **The filter alone:** one forgotten `WHERE` leaks data.
+- **RLS:** a second, independent layer. It costs one role, one policy per table and setting the tenant in every transaction (API and worker), and owners bypass it unless it is forced.
+- **A schema or database per tenant:** the strongest, but it multiplies migrations and connections.
+
+Composite foreign keys `(parent_id, tenant_id)` make a chunk or message of tenant A pointing at a document of tenant B impossible. The tenant comes only from the JWT; there is no tenant parameter anywhere in the API. Tests prove each layer on its own (RLS hides and refuses another tenant's rows; the search filter holds on a connection that bypasses RLS), isolation through the API, and the evaluation's leak check.
+
+### 3. Insufficient, contradictory or suspicious content
+
+Each case gets a different response:
+- **Insufficient → refuse explicitly.** If nothing retrieved supports an answer, the answer is "There is not enough information in your documents to answer this question.", with `status: insufficient_evidence`. Never a guess.
+  - With a real LLM the model decides, and the validator rejects any citation that is not a verbatim quote of a provided chunk.
+  - In keyless mode a calibrated similarity threshold decides (ADR-011).
+  - An invalid model output is retried with the validation error fed back (up to `LLM_MAX_RETRIES`, 2 by default); if every attempt is invalid, the answer is "not enough information", never unvalidated text.
+- **Contradictory → degrade, do not pick.** Both sources are cited, confidence is capped at `medium`, and the answer carries `sources_disagree` (ADR-013). Which clause prevails is a legal judgement for a person.
+- **Suspicious instructions → exclude and warn.** Chunks that address the assistant are flagged at indexing, never sent to the LLM, and the answer carries `prompt_injection`. The rest of the document is still used (ADR-013).
+- **Asking for more context:** not as a separate turn. The chat resolves follow-up questions against the conversation (ADR-010), so the user can narrow a question in the next turn.
+
+### 4. Observability scope
+
+- **Traces (OpenTelemetry → Collector → Jaeger):**
+  - **One trace per upload**, from `POST /documents` through the Celery task: extract, chunk, embed, store, and each SQL statement.
+  - **One trace per question:** the conversation turn, the query embedding, retrieval (hits per branch), the relevance judge (real LLM only), `llm.generate` and the answer with its validation.
+  - The question's `query.answer` span **links** to the ingestion trace of each document it used. They are separate traces because a question is not caused by an upload, but one click leads from one to the other.
+  - **Attributes:** tenant, document id, pages, chunk count, embedding model and batch size, task attempt and failure code, retrieval counts, LLM model, `llm.latency_ms`, `gen_ai.usage.input_tokens` / `output_tokens`, `llm.tokens.estimated` (true when the provider reports no usage), retries, validation errors, confidence, citation count, insufficient evidence, flagged-injection count.
+- **Logs:** JSON, one event per line, with `trace_id` and `span_id`. The two are joined by the trace id (shown in the chat's "How it was answered").
+- **Stored with the data** (queryable without a tracing backend):
+  - per document: processing time, embedding calls and tokens;
+  - per answer: latency, tokens in and out, model, attempts, and the retrieved chunks with their scores.
+- **Detecting degradation:** a rising share of `answer.insufficient`, lower citation counts or more validation retries on the spans point to a retrieval or quality problem; tokens and latency per answer point to cost.
+- **Left out for now:**
+  - OpenTelemetry metrics and dashboards (Prometheus, Grafana) and alerts: the signals exist as span attributes and stored fields, but nothing aggregates them yet.
+  - Cost in currency.
+  - Traces that start in the browser.
+  - Online quality scoring.
+- **Never recorded:** document text, prompts, answers or keys. Only ids, counts, sizes, timings and model names.
+
+## Main trade-offs
+
+- **The keyless LLM is extractive, not generative.** It quotes the contract's own sentences, so it cannot hallucinate a figure. In exchange it misses paraphrases and cannot combine two clauses. A real LLM is one variable away and goes through the same validation.
+- **A real embedding model instead of a fake one at run time.** Paraphrases work without a key, at the cost of a 2.7 GB image and CPU time. Tests keep a deterministic fake.
+- **pdfplumber instead of Docling by default:** seconds instead of minutes per PDF on a CPU, at the cost of layout understanding (ADR-008).
+- **RLS on top of the filter:** more moving parts for a second layer of isolation (ADR-002).
+- **Validated answers instead of streamed tokens:** the user waits for the whole answer, but never sees unvalidated text. Phases are streamed meanwhile (ADR-010).
+
+## Known limits
+
+- **Keyless answers:** paraphrases often fall just below the threshold and get "not enough information". Near misses quote the closest clause. On held-out real contracts: 14 of 28 right (ADR-011).
+- **Speed on a CPU:** 15–25 s per question, mostly ranking sentences with the embedding model at query time (ADR-009).
+- **Extraction:** no OCR, so a scanned PDF fails with `empty_pdf`. Multi-column layouts and tables are read in text order.
+- **Injection detection** is pattern-based: a paraphrased or split injection can pass. The prompt's delimiting and the citation validation still apply (ADR-013).
+- **Disagreement detection** compares figures, not meaning (ADR-013).
+- **Auth:** one test JWT per tenant; no users, roles or revocation.
+- **Evaluation:** 21 hand-written questions prove behaviours, not general quality (ADR-014).
+
+## How generative AI was used
+
+The whole project was built with an AI coding assistant (Claude Code), working under my direction: I set the plan by milestones and took every design decision. The assistant proposed options with trade-offs, wrote most of the code, tests and documents, and ran the checks. Several sub-agents worked in parallel on separate branches (frontend, guardrails, evaluation, calibration). I reviewed and merged their work. A private log kept every point where a proposal was discussed and changed. A summary:
+
+**Accepted after review:**
+- The architecture of the ingestion task: an atomic transition with a lease, fencing and a closed set of failure codes, so no document stays in `processing`.
+- RLS forced under a non-owner role, plus composite foreign keys.
+- The behaviour-based evaluation harness, and the calibration method (split by document, one held-out run, both numbers reported).
+- The sample contracts: the assistant researched typical US carrier, fuel and insurance clauses and wrote the text. The PDFs are generated deterministically, with no model at run time.
+
+**Changed by my decision** (the assistant proposed something else):
+- **Embeddings:** it built a hashing "fake" embedder as the default. I asked for a real free model, so BGE runs locally and the fake one stays for tests.
+- **The keyless LLM:** it first selected sentences by word overlap. I asked for something closer to how retrieval works, so sentences are ranked with the embedding model, with a calibrated threshold.
+- **Follow-ups:** it proposed searching each question on its own. I required follow-up resolution, rule-based in keyless mode and LLM-based with a key.
+- **Duplicates:** it planned `UNIQUE (tenant_id, sha256)`, which blocks re-uploading a PDF that failed. It became a partial unique index that ignores failed documents.
+- **Extraction:** Docling by default was measured at ~70 s per page on the target machine, and I chose pdfplumber with Docling optional.
+- **Language and scenario:** it recommended Spanish contracts under Spanish law. I chose US contracts in English, and the whole product in English.
+
+**Corrected** (the assistant was wrong):
+- **It claimed a check it had not run** (that `.env` was git-ignored). From then on, I required command output as evidence.
+- **It printed provider keys in the start-up error** of the first configuration. It was found by triggering the error on purpose and fixed, with a regression test.
+- **Compose published Postgres and Redis on all interfaces.** They are bound to `127.0.0.1` now.
+- **It committed with failing tests:** `pytest | tail -1` hid the exit code. It was found in the output and fixed; exit codes are checked explicitly since.
+- **With two sessions sharing one checkout, a `git add -A` swept the other session's unfinished work into a commit.** The history was rebuilt before pushing; files are now staged by path only.
+- **Its first evaluation checker reported false failures:** it flagged the page number an answer cites as an invented figure. Fixed after reading an actual answer, before touching the system.
+
+**What I kept for myself:** every design decision listed in the ADRs, the scope cuts, and the final review of what goes into this public repository.

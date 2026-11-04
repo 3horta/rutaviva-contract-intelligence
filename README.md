@@ -144,7 +144,7 @@ make eval
 - **Unit:** chunking, PDF extraction, LLM output validation (JSON, schema, grounding), guardrails, ranking, follow-up resolution, configuration.
 - **Integration (real PostgreSQL):** hybrid search, tenant isolation through the API and under RLS, the Celery task with failure and retry, duplicates, corrupt and empty PDFs.
 - **The LLM and the embeddings are simulated in tests** (`EMBEDDINGS_PROVIDER=fake`, a deterministic hashing embedder), so tests need no model and no network.
-- **Evaluation:** `make eval` uploads the sample PDFs, asks the 21 questions and checks behaviour: the outcome, the cited page, required and forbidden strings, that nothing of another tenant is retrieved, confidence caps and warnings. Last run: 16 pass, 4 soft warnings, 1 soft miss (details in ADR-014).
+- **Evaluation:** `make eval` uploads the sample PDFs, asks the 21 questions and checks behaviour: the outcome, the cited page, required and forbidden strings, that nothing of another tenant is retrieved, confidence caps and warnings. Last run: 16 pass, 0 fail, 5 warnings (soft cases: four paraphrases and one contradiction; details in ADR-014).
 
 **CI** ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) runs four jobs:
 - **backend:** lint, migrations up, down and up again, tests against a real Postgres; it fails if the database tests are skipped or the OpenAPI document is out of date;

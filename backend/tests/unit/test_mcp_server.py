@@ -263,3 +263,44 @@ def test_tools_need_the_auth_middleware(settings) -> None:
 
     assert result.is_error is True
     assert result.content[0].text.endswith("Not authenticated.")
+
+
+# --- Tracing --------------------------------------------------------------------------
+
+
+def test_app_spans_nest_under_the_sdk_tool_span(settings, no_database, monkeypatch) -> None:
+    """The SDK opens `tools/call <tool>` (GenAI `execute_tool`); the app's spans, opened
+    in the worker thread, are its children in the same trace."""
+    from mcp.shared import _otel as sdk_otel
+    from opentelemetry.sdk.trace import TracerProvider
+    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+    from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
+    from app.core import tracing
+
+    provider = TracerProvider()
+    exporter = InMemorySpanExporter()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
+    monkeypatch.setattr(tracing, "_tracer", provider.get_tracer("test"))
+    monkeypatch.setattr(sdk_otel, "_tracer", provider.get_tracer("mcp"))
+
+    def list_documents(*_args: Any, **_kwargs: Any) -> DocumentsResult:
+        with tracing.span("query.retrieve"):
+            return DocumentsResult(total=0, documents=[])
+
+    monkeypatch.setattr(mcp_tools, "list_documents", list_documents)
+
+    async def body(client: Client) -> Any:
+        return await client.call_tool("list_documents", {})
+
+    assert run_client(settings, body).is_error is False
+
+    spans = {span.name: span for span in exporter.get_finished_spans()}
+    tool_span = spans["tools/call list_documents"]
+    app_span = spans["query.retrieve"]
+    assert tool_span.attributes["gen_ai.operation.name"] == "execute_tool"
+    assert tool_span.attributes["gen_ai.tool.name"] == "list_documents"
+    assert tool_span.attributes["tenant.id"] == str(TENANT)
+    assert app_span.parent is not None
+    assert app_span.parent.span_id == tool_span.context.span_id
+    assert app_span.context.trace_id == tool_span.context.trace_id

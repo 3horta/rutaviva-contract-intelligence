@@ -13,12 +13,21 @@ export function setFetchImplementation(fn: FetchFn): void {
   fetchImpl = fn;
 }
 
+interface RequestOptions {
+  /** Send no token (the demo sign-in routes need none). */
+  anonymous?: boolean;
+}
+
 /**
  * Sends a request with the active tenant's token. Any non-2xx answer becomes
  * an ApiError; a 401 also flags the token, so the shell can ask for a new one.
  */
-export async function apiRequest(path: string, init: RequestInit = {}): Promise<Response> {
-  const token = authStore.getActiveToken();
+export async function apiRequest(
+  path: string,
+  init: RequestInit = {},
+  { anonymous = false }: RequestOptions = {},
+): Promise<Response> {
+  const token = anonymous ? null : authStore.getActiveToken();
   const headers = new Headers(init.headers);
   if (token) headers.set("Authorization", `Bearer ${token}`);
   if (!headers.has("Accept")) headers.set("Accept", "application/json");
@@ -39,8 +48,8 @@ export async function apiRequest(path: string, init: RequestInit = {}): Promise<
   return response;
 }
 
-export async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await apiRequest(path, init);
+export async function apiJson<T>(path: string, init?: RequestInit, options?: RequestOptions): Promise<T> {
+  const response = await apiRequest(path, init, options);
   return (await response.json()) as T;
 }
 

@@ -6,6 +6,8 @@
  */
 import { API_PREFIX, setFetchImplementation } from "../api/client";
 import type {
+  DemoTenantList,
+  DemoTokenResponse,
   DocumentList,
   DocumentOut,
   DocumentStats,
@@ -27,6 +29,7 @@ import {
   type Searchable,
 } from "./chat";
 import { EMBEDDING_MODEL, seedTenants, type MockDocument } from "./data";
+import { DEMO_TENANTS, DEMO_TOKEN_TTL_SECONDS, demoToken } from "./tokens";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
@@ -293,7 +296,35 @@ function handleChat(
   return problem(405, "Method not allowed", `${method} is not allowed here.`);
 }
 
+/** The demo sign-in routes (ADR-016): no token needed, as in the API with DEMO_LOGIN on. */
+function handleDemoAuth(parts: string[], method: string, init: RequestInit): Response {
+  const listed = DEMO_TENANTS.map((t) => ({ name: t.tenant_id, label: t.tenant_name }));
+  if (parts.length === 3 && parts[2] === "tenants" && method === "GET") {
+    const body: DemoTenantList = { tenants: listed };
+    return json(body);
+  }
+  if (parts.length === 3 && parts[2] === "token" && method === "POST") {
+    const name = readJson(init.body).tenant;
+    const tenant = DEMO_TENANTS.find((t) => t.tenant_id === name);
+    if (!tenant) return problem(404, "Not found", "Unknown tenant.");
+    const body: DemoTokenResponse = {
+      access_token: demoToken(tenant),
+      token_type: "bearer",
+      expires_in: DEMO_TOKEN_TTL_SECONDS,
+      tenant: { name: tenant.tenant_id, label: tenant.tenant_name },
+    };
+    return json(body);
+  }
+  return problem(404, "Not found", "No such route.");
+}
+
 async function handle(path: string, init: RequestInit): Promise<Response> {
+  const demoUrl = new URL(path, "http://mock.local");
+  const demoParts = demoUrl.pathname.split("/").filter(Boolean);
+  if (demoParts[0] === "auth" && demoParts[1] === "demo") {
+    return handleDemoAuth(demoParts, (init.method ?? "GET").toUpperCase(), init);
+  }
+
   const auth = new Headers(init.headers).get("Authorization") ?? "";
   const claims = auth.startsWith("Bearer ") ? decodeClaims(auth.slice(7)) : null;
   if (!claims || isExpired(claims) || !claims.tenant_id) {

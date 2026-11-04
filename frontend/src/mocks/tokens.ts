@@ -10,13 +10,17 @@ export const DEMO_TENANTS = [
 const base64Url = (value: object) =>
   btoa(JSON.stringify(value)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
-export function demoTokens(): string[] {
+export const DEMO_TOKEN_TTL_SECONDS = 8 * 3600;
+
+export function demoToken(tenant: (typeof DEMO_TENANTS)[number]): string {
   const now = Math.floor(Date.now() / 1000);
-  return DEMO_TENANTS.map((tenant) =>
-    [
-      base64Url({ alg: "none", typ: "JWT" }),
-      base64Url({ sub: "demo-user", ...tenant, iat: now, exp: now + 8 * 3600 }),
-      "demo-signature",
-    ].join("."),
-  );
+  return [
+    base64Url({ alg: "none", typ: "JWT" }),
+    base64Url({ sub: "demo-user", ...tenant, iat: now, exp: now + DEMO_TOKEN_TTL_SECONDS }),
+    "demo-signature",
+  ].join(".");
+}
+
+export function demoTokens(): string[] {
+  return DEMO_TENANTS.map(demoToken);
 }

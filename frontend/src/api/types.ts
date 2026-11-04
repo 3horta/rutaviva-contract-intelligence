@@ -11,6 +11,12 @@ import type { components } from "./schema";
 
 type Schemas = components["schemas"];
 
+/* Demo sign-in (only while the API runs with DEMO_LOGIN on) */
+
+export type DemoTenant = Schemas["DemoTenant"];
+export type DemoTenantList = Schemas["DemoTenantList"];
+export type DemoTokenResponse = Schemas["DemoTokenResponse"];
+
 /* Documents */
 
 export type DocumentOut = Schemas["DocumentOut"];

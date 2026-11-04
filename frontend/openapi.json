@@ -718,6 +718,7 @@
                 "type": "string",
                 "enum": [
                   "no_results",
+                  "all_flagged",
                   "llm_declared",
                   "validation_failed"
                 ]
@@ -1526,6 +1527,11 @@
               "both"
             ],
             "title": "Found By"
+          },
+          "flagged": {
+            "type": "boolean",
+            "title": "Flagged",
+            "default": false
           }
         },
         "type": "object",

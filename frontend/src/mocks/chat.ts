@@ -108,6 +108,7 @@ export function answer(question: string, docs: Searchable[], previousQuestion: s
     chunk_id: hit.chunk.id,
     score: Math.round((0.92 - index * 0.07) * 1000) / 1000,
     found_by: hit.score >= 2 ? "both" : index % 2 ? "full_text" : "vector",
+    flagged: false,
   }));
   const details: AnswerDetails = {
     standalone_question: standalone,

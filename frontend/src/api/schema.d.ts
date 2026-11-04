@@ -212,7 +212,7 @@ export interface components {
             /** Attempts */
             attempts: number;
             /** Insufficient Reason */
-            insufficient_reason: ("no_results" | "llm_declared" | "validation_failed") | null;
+            insufficient_reason: ("no_results" | "all_flagged" | "llm_declared" | "validation_failed") | null;
             /** Latency Ms */
             latency_ms: number;
             /** Llm Model */
@@ -529,6 +529,11 @@ export interface components {
              * @enum {string}
              */
             found_by: "vector" | "full_text" | "both";
+            /**
+             * Flagged
+             * @default false
+             */
+            flagged: boolean;
         };
         /** StatusCounts */
         StatusCounts: {

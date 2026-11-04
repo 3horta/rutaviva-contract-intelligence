@@ -9,4 +9,5 @@
 !frontend/tsconfig.node.json
 !frontend/vite.config.ts
 !frontend/src
+!frontend/public
 !infra/nginx.conf

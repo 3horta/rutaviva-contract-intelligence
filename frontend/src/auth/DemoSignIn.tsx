@@ -8,6 +8,9 @@ import { signInAsDemoTenant, useDemoTenants } from "./demoLogin";
 import styles from "./DemoSignIn.module.css";
 import { TokenForm } from "./TokenForm";
 
+/** Shown while the API answers 502/503/504 or not at all, as it does while it loads its models. */
+export const STARTING_LABEL = "Starting… the service is loading. This can take a few minutes after a restart.";
+
 export const DEMO_NOTICE = "Demo mode: sign-in without a password. Do not deploy with DEMO_LOGIN on.";
 
 interface SignInOptionsProps {
@@ -24,7 +27,13 @@ interface SignInOptionsProps {
 export function SignInOptions({ onSignedIn, submitLabel, autoFocus }: SignInOptionsProps) {
   const demo = useDemoTenants();
 
-  if (demo.isPending) return <LoadingState compact label="Loading sign-in options…" />;
+  if (demo.isPending) {
+    return demo.failureCount > 0 ? (
+      <LoadingState compact label={STARTING_LABEL} />
+    ) : (
+      <LoadingState compact label="Loading sign-in options…" />
+    );
+  }
   const tenants = demo.data;
   if (!tenants) return <TokenForm onAdded={onSignedIn} submitLabel={submitLabel} autoFocus={autoFocus} />;
 

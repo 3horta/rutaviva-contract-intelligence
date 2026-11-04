@@ -22,9 +22,23 @@ export async function fetchDemoTenants(): Promise<DemoTenant[] | null> {
   }
 }
 
+/** How often to ask again while the API is still starting. */
+export const STARTING_RETRY_MS = 3_000;
+
+/**
+ * The API is not answering yet: no response at all, or the proxy's 502/503/504
+ * while the API loads its models after a (re)start. Worth waiting for, unlike a
+ * real error.
+ */
+export function isApiStarting(error: unknown): boolean {
+  if (error instanceof ApiError) return [502, 503, 504].includes(error.status);
+  return true;
+}
+
 /**
  * `data`: the tenants when demo mode is on, null when it is off, undefined
- * while loading or when the API could not be reached (the token form is shown).
+ * while loading. While the API is starting the query keeps retrying (pending,
+ * with `failureCount` > 0); only another error ends in the token form.
  */
 export function useDemoTenants() {
   return useQuery({
@@ -32,6 +46,8 @@ export function useDemoTenants() {
     queryFn: fetchDemoTenants,
     // The API's mode does not change while it runs.
     staleTime: Infinity,
+    retry: (_failureCount, error) => isApiStarting(error),
+    retryDelay: STARTING_RETRY_MS,
   });
 }
 

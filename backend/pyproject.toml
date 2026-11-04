@@ -10,6 +10,8 @@ dependencies = [
     # Real LLM and embedding providers (Gemini). Imported lazily: keyless mode never loads
     # it. Exact version: the one the provider spike was run with.
     "litellm==1.106.6",
+    # MCP server (ADR-017): the official SDK; exact version, its API changed in 2.x.
+    "mcp==2.3.0",
     "opentelemetry-api>=1.30",
     "opentelemetry-exporter-otlp-proto-grpc>=1.30",
     "opentelemetry-instrumentation-celery>=0.51b0",

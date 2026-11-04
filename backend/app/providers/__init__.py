@@ -1,6 +1,8 @@
 """Provider factories: the only place that decides which implementation is active."""
 
+import logging
 import threading
+import time
 
 from app.core.config import Settings
 from app.providers.embeddings.base import EmbeddingsProvider
@@ -43,3 +45,17 @@ def _local_embeddings(model_name: str, dim: int, batch_size: int) -> EmbeddingsP
 
             _local_instances[key] = LocalEmbeddings(model_name, dim, batch_size=batch_size)
         return _local_instances[key]
+
+
+logger = logging.getLogger(__name__)
+
+
+def warm_up(settings: Settings) -> None:
+    """Load the local embedding model and run one inference at process start, so the
+    first user request does not pay for it (seconds to minutes on a small CPU). Other
+    providers have nothing to load."""
+    if settings.embeddings_provider != "local":
+        return
+    started = time.perf_counter()
+    get_embeddings(settings).embed_query("warm up")
+    logger.info("models.warmed", extra={"ms": round((time.perf_counter() - started) * 1000)})

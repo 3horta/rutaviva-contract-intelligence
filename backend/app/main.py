@@ -4,7 +4,11 @@ Started through the factory, with no global `app`, so importing this module does
 read the settings: `uvicorn --factory app.main:create_app`.
 """
 
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
+from starlette.concurrency import run_in_threadpool
 
 from app.api.conversations import router as conversations_router
 from app.api.documents import router as documents_router
@@ -15,6 +19,7 @@ from app.core.auth import load_signing_key
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.core.telemetry import configure_telemetry, instrument_fastapi
+from app.providers import warm_up
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -29,7 +34,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging(settings.log_level)
     configure_telemetry(settings.otel_service_name, settings)
 
-    app = FastAPI(title="Rutaviva Contract Intelligence", version="0.1.0")
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        # Load the embedding model before serving (in a thread: it is CPU-bound).
+        await run_in_threadpool(warm_up, settings)
+        yield
+
+    app = FastAPI(title="Rutaviva Contract Intelligence", version="0.1.0", lifespan=lifespan)
     instrument_fastapi(app)
     app.dependency_overrides[get_settings] = lambda: settings
     install_problem_handlers(app)

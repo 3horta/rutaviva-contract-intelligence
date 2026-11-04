@@ -60,3 +60,8 @@ def _setup_logging(loglevel: str | int | None = None, **_: Any) -> None:
 def _init_worker_process(**_: Any) -> None:
     settings = get_settings()
     configure_telemetry(settings.otel_service_name, settings)
+    # Load the embedding model now, not in the first task (imported here: Celery imports
+    # this module before the providers' settings are known).
+    from app.providers import warm_up
+
+    warm_up(settings)

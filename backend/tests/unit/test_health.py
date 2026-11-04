@@ -60,3 +60,12 @@ def test_health_shows_the_fast_model(make_settings) -> None:
     assert body["llm_model"] == "gemini/gemini-3.5-pro"
     assert body["llm_fast_model"] == "gemini/gemini-3.5-flash"
     assert "super-secret-key" not in response.text
+
+
+def test_warm_up_does_nothing_without_a_local_model(make_settings, monkeypatch) -> None:
+    import app.providers as providers
+
+    calls = []
+    monkeypatch.setattr(providers, "get_embeddings", lambda settings: calls.append(settings))
+    providers.warm_up(make_settings())  # tests use the simulated embedder
+    assert calls == []

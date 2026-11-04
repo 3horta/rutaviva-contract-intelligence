@@ -4,6 +4,8 @@ Contract (routers and tests rely on these names and signatures):
 - `get_current_tenant` -> `TenantContext`: verifies the `Authorization: Bearer <JWT>`
   header (signature, `exp`, `iss`) and that the tenant exists; raises `Unauthorized`.
   The tenant comes ONLY from the verified token, never from the request.
+- `authenticate_token` -> `TenantContext`: the same check for a raw token, also used by
+  the MCP server.
 - `get_tenant_session` -> `Session`: a session inside `tenant_transaction` for the current
   tenant (RLS applies); commits when the request handler returns, rolls back on error.
 - `get_storage` -> `Storage`, `get_dispatcher` -> `TaskDispatcher`: overridable in tests.
@@ -64,9 +66,20 @@ def get_current_tenant(
     if credentials is None:
         logger.info("auth.rejected", extra={"reason": "missing_bearer"})
         raise Unauthorized(_UNAUTHORIZED_DETAIL)
+    return authenticate_token(settings, factory, credentials.credentials)
 
+
+def authenticate_token(
+    settings: Settings, factory: sessionmaker[Session], token: str
+) -> TenantContext:
+    """The tenant of a bearer token: signature, `exp`, `iss`, and the tenant must still
+    exist with the same name. Raises `Unauthorized` or `ServiceUnavailable`.
+
+    Shared by the REST API and the MCP server (`app/mcp/auth.py`), so both accept exactly
+    the same tokens.
+    """
     try:
-        claims = verify_token(settings, credentials.credentials)
+        claims = verify_token(settings, token)
     except AuthConfigError:
         # The server cannot verify any token: a configuration problem, not the client's.
         logger.exception("auth.key_unavailable")

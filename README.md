@@ -47,6 +47,28 @@ On start, the one-shot `migrate` service generates the JWT signing key into a Do
 
 More questions, with the expected answers and pages, are in [`sample_data/questions.yaml`](sample_data/questions.yaml).
 
+## Use it from an AI agent (MCP)
+
+The API is also an [MCP](https://modelcontextprotocol.io) server at `http://localhost:8000/mcp` (Streamable HTTP), so an agent such as Claude Code can work with a tenant's contracts directly. It uses the same tenant JWT as the web app and sees only that tenant's documents. With the stack up:
+
+```bash
+# -T: no TTY, so the token comes back without a trailing carriage return
+TOKEN=$(docker compose exec -T api python scripts/issue_token.py --tenant tenant_a)
+claude mcp add --transport http rutaviva http://localhost:8000/mcp \
+  --header "Authorization: Bearer $TOKEN"
+```
+
+Then ask Claude Code, for example, *"Using rutaviva, what is the penalty for late tire delivery? Cite file and page."* Its model decides which tools to call:
+
+| Tool | What it does |
+|---|---|
+| `list_documents` | The tenant's contracts and their state (only `ready` ones are searchable) |
+| `search_contracts` | The app's hybrid search and reranker: verbatim passages with file, page and scores |
+| `get_passage` | A passage with its neighbours, to read a clause in context |
+| `ask_contracts` | The app's own answer pipeline: an answer whose quotes were checked, or "not enough information" |
+
+There is also a prompt, `review_contract`, that walks through a contract topic by topic with those tools. Every tool is read-only. Passages flagged as prompt injection are listed with their text withheld. Any MCP client that can send an `Authorization` header works the same way. The token expires after 24 h, so add the server again with a new one. Design and limits: ADR-017.
+
 ## Observability
 
 ```
@@ -130,6 +152,7 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 - Answers validated in three layers (JSON, Pydantic schema, quotes grounded in the chunks), with a retry carrying the error and an explicit "not enough information" otherwise. Timeouts and transient errors have bounded retries.
 - Tenant isolation: a JWT per tenant, a `tenant_id` filter, and forced Row Level Security under a non-owner role.
 - Prompt injection in documents is detected at ingestion; flagged chunks are excluded and the answer warns. Disagreeing sources cap the confidence.
+- MCP server at `/mcp` for AI agents: four read-only tools (search, read in context, list, ask) and a review prompt, with the same JWT and tenant isolation as the API.
 - Chat over SSE with live phases, persisted conversations (search, rename, delete) and follow-up questions; with a real LLM, generated conversation titles and suggested follow-ups; a stopped answer keeps its question to ask again.
 - React app: upload with status, document table with state in the URL, PDF viewer with the cited passage highlighted, chat with citations and export, dark mode, accessibility tests.
 - OpenTelemetry: one trace from the upload's HTTP request through the Celery task; queries traced with the LLM's latency and tokens, linked to the ingestion traces; JSON logs with `trace_id`.

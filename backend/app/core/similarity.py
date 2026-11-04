@@ -28,6 +28,10 @@ CALIBRATED_THRESHOLDS: dict[str, SimilarityThresholds] = {
     # Measured with the unit/contract fixtures: unrelated sentences score <= 0.19,
     # answers 0.30-0.49. Used by every automated test.
     "fake-hash-v1@768": SimilarityThresholds(minimum=0.25, margin=0.05),
+    # Measured on 8 real contracts, 37 questions (sample_data/calibration/, ADR-011):
+    # 27/37 right; every 0.585-0.685 gives the same score, 0.64 is the middle. Topics
+    # absent from every document score <= 0.58; the overlap is near-miss questions.
+    "bge-base-en-v1.5@768": SimilarityThresholds(minimum=0.64, margin=0.05),
 }
 
 

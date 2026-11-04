@@ -1,0 +1,453 @@
+{
+  "embedding_model": "bge-base-en-v1.5@768",
+  "questions_file": "questions_calibration.yaml",
+  "chosen_rule": "minimum",
+  "chosen_values": {
+    "threshold": 0.64,
+    "margin": 0.05
+  },
+  "report": {
+    "n_questions": 37,
+    "n_answerable": 23,
+    "n_unanswerable": 14,
+    "answer_in_candidates": 21,
+    "answer_page_retrieved": 22,
+    "best_chunk_found_by_fts": {
+      "answerable": 21,
+      "unanswerable": 13
+    },
+    "rules": {
+      "minimum": {
+        "best_accuracy": 0.73,
+        "threshold": 0.64,
+        "plateau": [
+          0.585,
+          0.685
+        ],
+        "margin": 0.05,
+        "tied_margins": [
+          0.0,
+          0.1
+        ],
+        "answerable_right": 16,
+        "unanswerable_right": 11,
+        "answerable_signal": {
+          "n": 23,
+          "no_signal": 0,
+          "min": 0.6079,
+          "median": 0.7225,
+          "max": 0.8817
+        },
+        "unanswerable_signal": {
+          "n": 14,
+          "no_signal": 0,
+          "min": 0.5177,
+          "median": 0.5791,
+          "max": 0.7207
+        },
+        "gap": -0.1128,
+        "unanswerable_above_lowest_answerable": 5,
+        "auc": 0.891
+      },
+      "relative": {
+        "best_accuracy": 0.784,
+        "threshold": 0.15,
+        "plateau": [
+          0.145,
+          0.155
+        ],
+        "margin": 0.07,
+        "tied_margins": [
+          0.04,
+          0.1
+        ],
+        "answerable_right": 19,
+        "unanswerable_right": 10,
+        "answerable_signal": {
+          "n": 23,
+          "no_signal": 0,
+          "min": 0.0985,
+          "median": 0.2164,
+          "max": 0.3177
+        },
+        "unanswerable_signal": {
+          "n": 14,
+          "no_signal": 0,
+          "min": 0.0835,
+          "median": 0.1108,
+          "max": 0.2737
+        },
+        "gap": -0.1752,
+        "unanswerable_above_lowest_answerable": 10,
+        "auc": 0.795
+      },
+      "combined": {
+        "best_accuracy": 0.73,
+        "threshold": 0.64,
+        "plateau": [
+          0.585,
+          0.685
+        ],
+        "margin": 0.05,
+        "tied_margins": [
+          0.0,
+          0.1
+        ],
+        "answerable_right": 16,
+        "unanswerable_right": 11,
+        "answerable_signal": {
+          "n": 23,
+          "no_signal": 2,
+          "min": 0.6079,
+          "median": 0.7255,
+          "max": 0.8817
+        },
+        "unanswerable_signal": {
+          "n": 14,
+          "no_signal": 1,
+          "min": 0.5177,
+          "median": 0.5816,
+          "max": 0.7207
+        },
+        "gap": -0.1128,
+        "unanswerable_above_lowest_answerable": 5,
+        "auc": 0.832
+      }
+    }
+  },
+  "questions": [
+    {
+      "id": "tst-freight-insurance-minimum",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.7255,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "tst-concealed-damage-reporting",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.8795,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "tst-late-delivery-freight-reduction",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.8322,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "fedex-dry-run-administrative-fee",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.7755,
+      "answer_rank": 9,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "fedex-ltl-liability-per-pound",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.8817,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "stg-undeclared-hazmat-charge",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.8344,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "stg-invoice-due-and-finance-charge",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.7158,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "stg-refused-cargo-storage-liability",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.8185,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "maine-gmc-parts-discount",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.6079,
+      "answer_rank": 4,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "maine-termination-for-cause-notice",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.7225,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "diesel-delivery-within-hours",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.7077,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "diesel-fixed-price-per-gallon",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.6863,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "calhoun-parts-markup-cap",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.7741,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "md-tsc-approval-limit",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.7865,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "fedex-claim-notification-deadline",
+      "kind": "lexical",
+      "answerable": true,
+      "best_similarity": 0.7608,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "calhoun-extra-repairs-without-approval",
+      "kind": "semantic",
+      "answerable": true,
+      "best_similarity": 0.6695,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "calhoun-flat-tire-fix-method",
+      "kind": "semantic",
+      "answerable": true,
+      "best_similarity": 0.6124,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "tst-storage-charges-start",
+      "kind": "semantic",
+      "answerable": true,
+      "best_similarity": 0.6464,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": false,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "maine-tire-parts-price-break",
+      "kind": "semantic",
+      "answerable": true,
+      "best_similarity": 0.6229,
+      "answer_rank": 1,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "diesel-wrong-product-in-tank",
+      "kind": "semantic",
+      "answerable": true,
+      "best_similarity": 0.6309,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "md-coupon-odometer-coverage",
+      "kind": "semantic",
+      "answerable": true,
+      "best_similarity": 0.7472,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "maine-repair-parts-guarantee",
+      "kind": "semantic",
+      "answerable": true,
+      "best_similarity": 0.6769,
+      "answer_rank": 0,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": true
+    },
+    {
+      "id": "stg-advance-notice-for-pickup",
+      "kind": "semantic",
+      "answerable": true,
+      "best_similarity": 0.6149,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": false,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "aircraft-charter-services",
+      "kind": "unanswerable",
+      "answerable": false,
+      "best_similarity": 0.5816,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "electronic-logging-devices",
+      "kind": "unanswerable",
+      "answerable": false,
+      "best_similarity": 0.5478,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "telematics-gps-tracking",
+      "kind": "unanswerable",
+      "answerable": false,
+      "best_similarity": 0.5457,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "iso-9001-certification",
+      "kind": "unanswerable",
+      "answerable": false,
+      "best_similarity": 0.5516,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": false,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "forklift-leasing",
+      "kind": "unanswerable",
+      "answerable": false,
+      "best_similarity": 0.5177,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "driver-drug-testing",
+      "kind": "unanswerable",
+      "answerable": false,
+      "best_similarity": 0.5582,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "snow-plowing-services",
+      "kind": "unanswerable",
+      "answerable": false,
+      "best_similarity": 0.5766,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "volume-rebates",
+      "kind": "unanswerable",
+      "answerable": false,
+      "best_similarity": 0.5711,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "diesel-gasoline-price",
+      "kind": "near_miss",
+      "answerable": false,
+      "best_similarity": 0.6811,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "diesel-minimum-delivery-quantity",
+      "kind": "near_miss",
+      "answerable": false,
+      "best_similarity": 0.6844,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "fedex-early-payment-discount",
+      "kind": "near_miss",
+      "answerable": false,
+      "best_similarity": 0.6183,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "calhoun-umbrella-insurance",
+      "kind": "near_miss",
+      "answerable": false,
+      "best_similarity": 0.6376,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "calhoun-electric-vehicles-in-fleet",
+      "kind": "near_miss",
+      "answerable": false,
+      "best_similarity": 0.6029,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    },
+    {
+      "id": "stg-maximum-gross-weight",
+      "kind": "near_miss",
+      "answerable": false,
+      "best_similarity": 0.7207,
+      "answer_rank": null,
+      "best_chunk_found_by_fts": true,
+      "answer_page_retrieved": false
+    }
+  ]
+}

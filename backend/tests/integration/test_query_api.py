@@ -53,7 +53,9 @@ def test_answer_with_citations(client_for) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "answered"
-    assert body["conversation_id"] is None
+    # The turn is stored: a new conversation and the assistant message.
+    assert body["conversation_id"] is not None
+    assert body["message_id"] is not None
     assert "25,000 miles" in body["answer"]
     assert body["warnings"] == []
     citation = body["citations"][0]

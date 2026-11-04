@@ -15,6 +15,16 @@ conversation with at least one turn and the same question text (otherwise 422: t
 client asked to retry something that is not the last question). The old turn is deleted
 in the same transaction that saves the new one, so a failed retry keeps the old answer.
 
+Interrupted turns: when the client of `POST /query/stream` disconnects (Stop) before
+the answer is saved, `save_interrupted_turn` stores the question with an empty
+assistant message of status `interrupted` (a new conversation is created with it, titled
+with the question). They are shown, can be asked again (a retry replaces them like any
+last turn), and are never used as follow-up context nor counted as answers. An
+interrupted retry stores nothing: the turn it was replacing stays.
+
+After the answer (stream only, see `app/api/query.py`): `store_generated_title` and
+`store_suggestions` add the LLM-written title and follow-up suggestions.
+
 Every query filters by `tenant_id` explicitly, with RLS underneath (ADR-002). A
 conversation of another tenant is a 404, never a 403.
 """
@@ -36,7 +46,7 @@ from app.conversations.resolver import (
 from app.core.config import Settings
 from app.core.errors import NotFound, Unprocessable
 from app.core.tracing import TENANT_ID, span
-from app.db.models import Conversation, Message, MessageRole
+from app.db.models import AnswerStatus, Conversation, Message, MessageRole
 from app.generation.service import AnswerOutcome, PhaseCallback, answer_with_usage
 from app.providers.embeddings.base import EmbeddingsProvider
 from app.providers.llm.base import LLMProvider
@@ -53,6 +63,14 @@ logger = logging.getLogger(__name__)
 
 TITLE_MAX_CHARS = 80
 _NOT_FOUND = "Conversation not found."
+# Turns read to build the follow-up context: more than MAX_CONTEXT_TURNS, so a few
+# interrupted turns (skipped) do not leave the resolver without context.
+CONTEXT_WINDOW_TURNS = 3 * MAX_CONTEXT_TURNS
+# Statuses of the turns that count as answers (and as follow-up context).
+ANSWER_STATUSES = frozenset({AnswerStatus.ANSWERED, AnswerStatus.INSUFFICIENT_EVIDENCE})
+# Key of the suggested follow-ups in `messages.details` (no migration; not part of the
+# API's `details`, see `_message_out`).
+SUGGESTIONS_KEY = "suggestions"
 
 
 def make_title(question: str) -> str:
@@ -100,7 +118,7 @@ def plan_turn(
         )
 
     conversation = _get_or_404(session, tenant_id, conversation_id)
-    turns = _last_turns(session, tenant_id, conversation_id, MAX_CONTEXT_TURNS + 1)
+    turns = _last_turns(session, tenant_id, conversation_id, CONTEXT_WINDOW_TURNS + 1)
     replaces = None
     if retry:
         if not turns:
@@ -113,9 +131,16 @@ def plan_turn(
         conversation_id=conversation.id,
         title=conversation.title,
         is_new=False,
-        context=[_as_context(turn) for turn in turns[-MAX_CONTEXT_TURNS:]],
+        context=context_from(turns),
         replaces=replaces,
     )
+
+
+def context_from(turns: list["_StoredTurn"]) -> list[Turn]:
+    """The follow-up context: the last `MAX_CONTEXT_TURNS` answered (or insufficient
+    evidence) turns, oldest first. Interrupted turns have no answer and are skipped."""
+    answered = [turn for turn in turns if turn.assistant.status in ANSWER_STATUSES]
+    return [_as_context(turn) for turn in answered[-MAX_CONTEXT_TURNS:]]
 
 
 def run_turn(
@@ -171,40 +196,13 @@ def _save_turn(
         }
     )
 
-    if plan.is_new:
-        session.add(Conversation(id=plan.conversation_id, tenant_id=tenant_id, title=plan.title))
-        session.flush()
-        logger.info(
-            "conversation.created",
-            extra={"tenant_id": str(tenant_id), "conversation_id": str(plan.conversation_id)},
-        )
-    else:
-        # Row lock: two turns saved at the same time in this conversation take
-        # consecutive sequence numbers instead of colliding on the unique constraint.
-        locked = session.scalar(
-            select(Conversation.id)
-            .where(Conversation.id == plan.conversation_id, Conversation.tenant_id == tenant_id)
-            .with_for_update()
-        )
-        if locked is None:  # deleted while the answer was being generated
-            raise NotFound(_NOT_FOUND)
-        if plan.replaces:
-            # By id: if a concurrent retry already removed them, this deletes nothing.
-            session.execute(
-                delete(Message).where(Message.id.in_(plan.replaces), Message.tenant_id == tenant_id)
-            )
+    _open_for_turn(session, tenant_id, plan)
+    if plan.replaces:
+        # By id: if a concurrent retry already removed them, this deletes nothing.
         session.execute(
-            update(Conversation)
-            .where(Conversation.id == plan.conversation_id, Conversation.tenant_id == tenant_id)
-            .values(updated_at=func.now())
+            delete(Message).where(Message.id.in_(plan.replaces), Message.tenant_id == tenant_id)
         )
-
-    last_sequence = session.scalar(
-        select(func.max(Message.sequence)).where(
-            Message.conversation_id == plan.conversation_id, Message.tenant_id == tenant_id
-        )
-    )
-    sequence = (last_sequence or 0) + 1
+    sequence = _next_sequence(session, tenant_id, plan.conversation_id)
     assistant_id = uuid.uuid4()
     session.add_all(
         [
@@ -255,6 +253,125 @@ def _save_turn(
             "details": details,
         }
     )
+
+
+def save_interrupted_turn(
+    session: Session, tenant_id: uuid.UUID, plan: TurnPlan, question: str
+) -> uuid.UUID | None:
+    """Store `question` with an empty `interrupted` answer (in `session`'s transaction:
+    the caller commits). Returns the assistant message id, or None when nothing is
+    stored: an interrupted retry (the replaced turn stays) or a conversation deleted
+    meanwhile. Same row lock and sequence numbering as `_save_turn`."""
+    if plan.replaces:
+        return None
+    try:
+        _open_for_turn(session, tenant_id, plan)
+    except NotFound:
+        return None
+    sequence = _next_sequence(session, tenant_id, plan.conversation_id)
+    assistant_id = uuid.uuid4()
+    session.add_all(
+        [
+            Message(
+                conversation_id=plan.conversation_id,
+                tenant_id=tenant_id,
+                sequence=sequence,
+                role=MessageRole.USER,
+                content=question,
+            ),
+            Message(
+                id=assistant_id,
+                conversation_id=plan.conversation_id,
+                tenant_id=tenant_id,
+                sequence=sequence + 1,
+                role=MessageRole.ASSISTANT,
+                content="",
+                status=AnswerStatus.INTERRUPTED,
+            ),
+        ]
+    )
+    session.flush()
+    logger.info(
+        "conversation.turn_interrupted",
+        extra={
+            "tenant_id": str(tenant_id),
+            "conversation_id": str(plan.conversation_id),
+            "message_id": str(assistant_id),
+            "sequence": sequence,
+            "new_conversation": plan.is_new,
+        },
+    )
+    return assistant_id
+
+
+def store_generated_title(
+    session: Session, tenant_id: uuid.UUID, plan: TurnPlan, title: str
+) -> bool:
+    """Replace the provisional title (the first question) with `title`, unless the user
+    renamed the conversation meanwhile. Like a rename, not activity: `updated_at` is
+    kept. Returns whether it was stored."""
+    stored = session.scalar(
+        update(Conversation)
+        .where(
+            Conversation.id == plan.conversation_id,
+            Conversation.tenant_id == tenant_id,
+            Conversation.title == plan.title,  # still the provisional one
+        )
+        .values(title=title, updated_at=Conversation.updated_at)
+        .returning(Conversation.id)
+    )
+    return stored is not None
+
+
+def store_suggestions(
+    session: Session, tenant_id: uuid.UUID, message_id: uuid.UUID, suggestions: list[str]
+) -> bool:
+    """Keep the suggested follow-ups with the assistant message (in its `details`)."""
+    message = session.scalar(
+        select(Message).where(Message.id == message_id, Message.tenant_id == tenant_id)
+    )
+    if message is None or message.role != MessageRole.ASSISTANT:
+        return False  # deleted (or replaced by a retry) meanwhile
+    # A new dict, so the JSONB column is seen as changed.
+    message.details = {**(message.details or {}), SUGGESTIONS_KEY: list(suggestions)}
+    session.flush()
+    return True
+
+
+def _open_for_turn(session: Session, tenant_id: uuid.UUID, plan: TurnPlan) -> None:
+    """Create the conversation of a new turn, or lock an existing one and mark the
+    activity. Raises `NotFound` if it was deleted while the answer was generated."""
+    if plan.is_new:
+        session.add(Conversation(id=plan.conversation_id, tenant_id=tenant_id, title=plan.title))
+        session.flush()
+        logger.info(
+            "conversation.created",
+            extra={"tenant_id": str(tenant_id), "conversation_id": str(plan.conversation_id)},
+        )
+        return
+    # Row lock: two turns saved at the same time in this conversation take consecutive
+    # sequence numbers instead of colliding on the unique constraint.
+    locked = session.scalar(
+        select(Conversation.id)
+        .where(Conversation.id == plan.conversation_id, Conversation.tenant_id == tenant_id)
+        .with_for_update()
+    )
+    if locked is None:
+        raise NotFound(_NOT_FOUND)
+    session.execute(
+        update(Conversation)
+        .where(Conversation.id == plan.conversation_id, Conversation.tenant_id == tenant_id)
+        .values(updated_at=func.now())
+    )
+
+
+def _next_sequence(session: Session, tenant_id: uuid.UUID, conversation_id: uuid.UUID) -> int:
+    last_sequence = session.scalar(
+        select(func.max(Message.sequence)).where(
+            Message.conversation_id == conversation_id, Message.tenant_id == tenant_id
+        )
+    )
+    return (last_sequence or 0) + 1
 
 
 def _last_turns(
@@ -417,6 +534,8 @@ def _summary(conversation: Conversation, message_count: int) -> ConversationSumm
 
 
 def _message_out(message: Message) -> MessageOut:
+    stored = dict(message.details or {})
+    suggestions = stored.pop(SUGGESTIONS_KEY, None) or []
     return MessageOut(
         id=message.id,
         role=message.role,
@@ -425,7 +544,8 @@ def _message_out(message: Message) -> MessageOut:
         confidence=message.confidence,
         citations=message.citations,
         warnings=message.warnings,
-        details=AnswerDetails.model_validate(message.details) if message.details else None,
+        details=AnswerDetails.model_validate(stored) if stored else None,
+        suggestions=suggestions,
         created_at=message.created_at,
     )
 

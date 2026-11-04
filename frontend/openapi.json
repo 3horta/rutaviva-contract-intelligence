@@ -441,7 +441,7 @@
         },
         "responses": {
           "200": {
-            "description": "Events: `conversation` (first), `phase` (0..n), then `result` (a QueryResponse) or `error` (Problem Details).",
+            "description": "Events: `conversation` (first), `phase` (0..n), then `result` (a QueryResponse) or `error` (Problem Details). After `result`, with a real LLM only: `suggestions` (SuggestionsEvent) when there are any, and `title` (TitleEvent) when a new conversation got a generated title.",
             "content": {
               "text/event-stream": {}
             }
@@ -1338,7 +1338,8 @@
                 "type": "string",
                 "enum": [
                   "answered",
-                  "insufficient_evidence"
+                  "insufficient_evidence",
+                  "interrupted"
                 ]
               },
               {
@@ -1387,6 +1388,13 @@
               }
             ]
           },
+          "suggestions": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Suggestions"
+          },
           "created_at": {
             "type": "string",
             "format": "date-time",
@@ -1406,7 +1414,7 @@
           "created_at"
         ],
         "title": "MessageOut",
-        "description": "A stored message. `status`, `confidence` and `details` are null for user messages\n(and `citations` / `warnings` empty)."
+        "description": "A stored message. `status`, `confidence` and `details` are null for user messages\n(and `citations` / `warnings` / `suggestions` empty). An `interrupted` answer has\nempty `content`, null `confidence` and `details`."
       },
       "QueryRequest": {
         "properties": {

@@ -1,8 +1,13 @@
 """Conversations end to end: POST /query and /query/stream store turns, the conversation
-endpoints, retry, follow-ups and tenant isolation. Real Postgres, fake embeddings and
-fake LLM; authentication is overridden with a test tenant (as in test_query_api.py)."""
+endpoints, retry, follow-ups, interrupted turns, suggestions and generated titles, and
+tenant isolation. Real Postgres, fake embeddings and fake LLM (the title and suggestion
+generators are scripted); authentication is overridden with a test tenant (as in
+test_query_api.py)."""
 
+import asyncio
+import dataclasses
 import json
+import threading
 import uuid
 from collections.abc import Iterator
 from typing import Any
@@ -12,12 +17,14 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from app.api import query as query_api
 from app.api.deps import (
     TenantContext,
     get_current_tenant,
     get_session_factory,
     get_tenant_session,
 )
+from app.conversations.service import plan_turn, store_generated_title
 from app.core.config import Settings
 from app.db.models import Conversation, Message
 from app.db.session import tenant_transaction
@@ -393,3 +400,251 @@ def test_another_tenants_conversation_is_not_found(setup) -> None:
     ids_b = [c["id"] for c in client_b.get("/conversations").json()["results"]]
     assert ids_a == [body_a["conversation_id"]]
     assert ids_b == [body_b["conversation_id"]]
+
+
+# --- Interrupted turns (client disconnect) ------------------------------------------------
+
+
+def _hold_the_answer(monkeypatch) -> threading.Event:
+    """The answer waits for the returned event before it starts, so the client can
+    leave while it is in progress."""
+    gate = threading.Event()
+    real_run_turn = query_api.run_turn
+
+    def slow_run_turn(*args: Any, **kwargs: Any):
+        assert gate.wait(10)
+        return real_run_turn(*args, **kwargs)
+
+    monkeypatch.setattr(query_api, "run_turn", slow_run_turn)
+    return gate
+
+
+def stream_then_disconnect(client: TestClient, body: dict) -> list[tuple[str, dict]]:
+    """POST /query/stream through the ASGI interface, and disconnect as soon as the
+    `conversation` event arrives (what the browser does on Stop). The TestClient cannot
+    do this: it reads the whole body. Returns the events received."""
+    received = bytearray()
+
+    async def run() -> None:
+        disconnect = asyncio.Event()
+        body_sent = False
+
+        async def receive() -> dict:
+            nonlocal body_sent
+            if not body_sent:
+                body_sent = True
+                return {"type": "http.request", "body": json.dumps(body).encode()}
+            await disconnect.wait()
+            return {"type": "http.disconnect"}
+
+        async def send(message: dict) -> None:
+            if message["type"] == "http.response.body":
+                received.extend(message.get("body", b""))
+                if b"event: conversation" in received:
+                    disconnect.set()
+
+        scope = {
+            "type": "http",
+            "asgi": {"version": "3.0", "spec_version": "2.3"},
+            "http_version": "1.1",
+            "method": "POST",
+            "scheme": "http",
+            "path": "/query/stream",
+            "raw_path": b"/query/stream",
+            "query_string": b"",
+            "root_path": "",
+            "headers": [(b"content-type", b"application/json"), (b"host", b"testserver")],
+            "client": ("testclient", 50000),
+            "server": ("testserver", 80),
+        }
+        await client.app(scope, receive, send)
+
+    asyncio.run(run())
+    return parse_sse(received.decode())
+
+
+def _join_stream_threads() -> None:
+    for thread in threading.enumerate():
+        if thread.name.startswith("query-stream"):
+            thread.join(30)
+
+
+def test_disconnect_stores_the_question_as_an_interrupted_turn(
+    setup, app_sessions, monkeypatch
+) -> None:
+    make, tenant_a, *_ = setup
+    client = make(tenant_a)
+    gate = _hold_the_answer(monkeypatch)
+
+    events = stream_then_disconnect(client, {"question": PM_QUESTION})
+    gate.set()  # the answer completes after the client left: it is discarded
+    _join_stream_threads()
+
+    assert [name for name, _ in events] == ["conversation"]
+    conversation_id = events[0][1]["conversation_id"]
+    messages = stored_messages(app_sessions, tenant_a, conversation_id)
+    assert [(m.sequence, m.role, m.content, m.status) for m in messages] == [
+        (1, "user", PM_QUESTION, None),
+        (2, "assistant", "", "interrupted"),
+    ]
+    # The new conversation exists, titled with the question, so it can be found again.
+    detail = client.get(f"/conversations/{conversation_id}").json()
+    assert detail["title"] == PM_QUESTION
+    assert detail["messages"][1]["status"] == "interrupted"
+    assert detail["messages"][1]["details"] is None
+
+
+def test_an_interrupted_turn_can_be_asked_again_and_is_not_context(
+    setup, app_sessions, monkeypatch
+) -> None:
+    make, tenant_a, *_ = setup
+    client = make(tenant_a)
+    first = ask(client, TIRE_QUESTION)
+    conversation_id = first["conversation_id"]
+
+    gate = _hold_the_answer(monkeypatch)
+    stream_then_disconnect(client, {"question": PM_QUESTION, "conversation_id": conversation_id})
+    gate.set()
+    _join_stream_threads()
+    monkeypatch.undo()
+
+    # A follow-up is resolved against the last ANSWERED turn, not the interrupted one.
+    follow_up = ask(client, "and what is the cap?", conversation_id=conversation_id)
+    assert follow_up["details"]["standalone_question"] == f"{TIRE_QUESTION} and what is the cap?"
+
+    # The interrupted turn stays where it was; the follow-up comes after it.
+    statuses = [m.status for m in stored_messages(app_sessions, tenant_a, conversation_id)]
+    assert statuses == [None, "answered", None, "interrupted", None, "answered"]
+
+
+def test_retry_replaces_an_interrupted_last_turn(setup, app_sessions, monkeypatch) -> None:
+    make, tenant_a, *_ = setup
+    client = make(tenant_a)
+    gate = _hold_the_answer(monkeypatch)
+    events = stream_then_disconnect(client, {"question": PM_QUESTION})
+    gate.set()
+    _join_stream_threads()
+    monkeypatch.undo()
+    conversation_id = events[0][1]["conversation_id"]
+
+    retried = ask(client, PM_QUESTION, conversation_id=conversation_id, retry=True)
+
+    messages = stored_messages(app_sessions, tenant_a, conversation_id)
+    assert [(m.role, m.status) for m in messages] == [("user", None), ("assistant", "answered")]
+    assert str(messages[1].id) == retried["message_id"]
+
+
+def test_an_interrupted_retry_keeps_the_turn_it_was_replacing(
+    setup, app_sessions, monkeypatch
+) -> None:
+    make, tenant_a, *_ = setup
+    client = make(tenant_a)
+    first = ask(client, PM_QUESTION)
+    conversation_id = first["conversation_id"]
+
+    gate = _hold_the_answer(monkeypatch)
+    stream_then_disconnect(
+        client, {"question": PM_QUESTION, "conversation_id": conversation_id, "retry": True}
+    )
+    gate.set()
+    _join_stream_threads()
+
+    messages = stored_messages(app_sessions, tenant_a, conversation_id)
+    assert [m.status for m in messages] == [None, "answered"]
+    assert str(messages[1].id) == first["message_id"]
+
+
+# --- Suggestions and generated titles -----------------------------------------------------
+
+
+class ScriptedSuggester:
+    def __init__(self, suggestions: list[str]) -> None:
+        self.suggestions = suggestions
+        self.calls: list[str] = []
+
+    def suggest(self, question, answer, citations):
+        self.calls.append(question)
+        return self.suggestions
+
+
+class ScriptedTitler:
+    def __init__(self, title: str | None) -> None:
+        self.result = title
+
+    def title(self, question, answer):
+        return self.result
+
+
+def test_stream_sends_suggestions_and_title_after_the_result(setup, monkeypatch) -> None:
+    make, tenant_a, *_ = setup
+    client = make(tenant_a)
+    suggester = ScriptedSuggester(["Who performs the PM-B service?"])
+    monkeypatch.setattr(query_api, "get_suggestion_generator", lambda settings: suggester)
+    monkeypatch.setattr(
+        query_api, "get_title_generator", lambda settings: ScriptedTitler("PM-A service interval")
+    )
+
+    events = parse_sse(client.post("/query/stream", json={"question": PM_QUESTION}).text)
+
+    names = [name for name, _ in events]
+    assert names == ["conversation", "phase", "phase", "phase", "result", "suggestions", "title"]
+    result = events[4][1]
+    assert events[5][1] == {
+        "message_id": result["message_id"],
+        "suggestions": ["Who performs the PM-B service?"],
+    }
+    assert events[6][1]["title"] == "PM-A service interval"
+    assert suggester.calls == [PM_QUESTION]
+
+    # Stored: after a reload the last answer has its suggestions and the new title.
+    detail = client.get(f"/conversations/{result['conversation_id']}").json()
+    assert detail["title"] == "PM-A service interval"
+    assert detail["messages"][1]["suggestions"] == ["Who performs the PM-B service?"]
+    assert "suggestions" not in detail["messages"][1]["details"]
+    assert detail["messages"][0]["suggestions"] == []
+
+
+def test_no_suggestions_for_insufficient_evidence_and_keyless_sends_none(
+    setup, monkeypatch
+) -> None:
+    make, tenant_a, *_ = setup
+    client = make(tenant_a)
+    # Keyless (the default): no extra events at all.
+    events = parse_sse(client.post("/query/stream", json={"question": PM_QUESTION}).text)
+    assert [name for name, _ in events][-1] == "result"
+
+    suggester = ScriptedSuggester(["Anything else?"])
+    monkeypatch.setattr(query_api, "get_suggestion_generator", lambda settings: suggester)
+    events = parse_sse(
+        client.post("/query/stream", json={"question": "zebra quantum giraffe?"}).text
+    )
+    assert events[-1][0] == "result" and events[-1][1]["status"] == "insufficient_evidence"
+    assert suggester.calls == []
+
+
+def test_a_renamed_conversation_keeps_its_title(setup, app_sessions) -> None:
+    make, tenant_a, *_ = setup
+    client = make(tenant_a)
+    first = ask(client, PM_QUESTION)
+    conversation_id = uuid.UUID(first["conversation_id"])
+    # The plan as it was for the first turn: the provisional title is the question.
+    with tenant_transaction(app_sessions, tenant_a) as session:
+        plan = plan_turn(session, tenant_a, conversation_id=None, question=PM_QUESTION, retry=False)
+    plan = dataclasses.replace(plan, conversation_id=conversation_id)
+
+    client.patch(f"/conversations/{conversation_id}", json={"title": "My maintenance notes"})
+    with tenant_transaction(app_sessions, tenant_a) as session:
+        assert store_generated_title(session, tenant_a, plan, "PM-A interval") is False
+    assert client.get(f"/conversations/{conversation_id}").json()["title"] == (
+        "My maintenance notes"
+    )
+
+    other = ask(client, INCIDENT_QUESTION)
+    with tenant_transaction(app_sessions, tenant_a) as session:
+        plan = dataclasses.replace(
+            plan, conversation_id=uuid.UUID(other["conversation_id"]), title=INCIDENT_QUESTION
+        )
+        assert store_generated_title(session, tenant_a, plan, "Incident reporting") is True
+    assert client.get(f"/conversations/{other['conversation_id']}").json()["title"] == (
+        "Incident reporting"
+    )

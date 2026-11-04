@@ -4,11 +4,14 @@ import uuid
 from datetime import datetime
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, StringConstraints
+from pydantic import BaseModel, Field, StringConstraints
 
-from app.schemas.query import AnswerDetails, AnswerStatusOut, Citation, Confidence
+from app.schemas.query import AnswerDetails, Citation, Confidence
 
 MessageRoleOut = Literal["user", "assistant"]
+# A stored answer's status: the answer statuses, plus `interrupted` (the client
+# disconnected before the answer was saved: the question was kept, the answer is empty).
+MessageStatusOut = Literal["answered", "insufficient_evidence", "interrupted"]
 
 
 class ConversationSummary(BaseModel):
@@ -29,16 +32,20 @@ class ConversationList(BaseModel):
 
 class MessageOut(BaseModel):
     """A stored message. `status`, `confidence` and `details` are null for user messages
-    (and `citations` / `warnings` empty)."""
+    (and `citations` / `warnings` / `suggestions` empty). An `interrupted` answer has
+    empty `content`, null `confidence` and `details`."""
 
     id: uuid.UUID
     role: MessageRoleOut
     content: str
-    status: AnswerStatusOut | None
+    status: MessageStatusOut | None
     confidence: Confidence | None
     citations: list[Citation]
     warnings: list[str]
     details: AnswerDetails | None
+    # Follow-up questions suggested after an `answered` turn (real LLM only; may be
+    # empty, and arrive a moment after the answer).
+    suggestions: list[str] = Field(default_factory=list)
     created_at: datetime
 
 
@@ -77,3 +84,19 @@ class ConversationEvent(BaseModel):
 class PhaseEvent(BaseModel):
     phase: Phase
     label: str
+
+
+class SuggestionsEvent(BaseModel):
+    """After `result`, only when there are suggestions: follow-up questions for the
+    answer `message_id`, already stored with it."""
+
+    message_id: uuid.UUID
+    suggestions: list[str]
+
+
+class TitleEvent(BaseModel):
+    """After `result`, only for a new conversation whose title the LLM wrote (already
+    stored)."""
+
+    conversation_id: uuid.UUID
+    title: str

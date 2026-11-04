@@ -65,6 +65,9 @@ class MessageRole(StrEnum):
 class AnswerStatus(StrEnum):
     ANSWERED = "answered"
     INSUFFICIENT_EVIDENCE = "insufficient_evidence"
+    # The client disconnected (Stop) before the answer was saved: the question is kept,
+    # with an empty answer. Never used as context for follow-ups.
+    INTERRUPTED = "interrupted"
 
 
 class Confidence(StrEnum):
@@ -247,7 +250,8 @@ class Conversation(Base):
 
 class Message(Base):
     """A message as displayed. The question and its answer are written together in
-    one transaction: if the query fails (503/504), neither is stored.
+    one transaction: if the query fails (503/504), neither is stored. If the client
+    disconnects first, the question is stored with an empty `interrupted` answer.
 
     Query metadata lives on the assistant message, with no separate log table; the
     detailed record is in the trace (`trace_id`)."""

@@ -28,7 +28,7 @@ from celery.exceptions import SoftTimeLimitExceeded
 from sqlalchemy import delete, func, text, update
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.core import tracing
+from app.core import metrics, tracing
 from app.core.config import Settings
 from app.core.errors import (
     EmptyPDFError,
@@ -109,7 +109,24 @@ def process_document(
     document_id: uuid.UUID, tenant_id: uuid.UUID, deps: IngestionDeps
 ) -> ProcessOutcome:
     """Process one document. Returns the outcome; raises `TransientProviderError` after
-    putting the document back to `pending`, so the caller can retry it."""
+    putting the document back to `pending`, so the caller can retry it.
+
+    A document that ends `ready` or `failed` is counted in `rutaviva.documents.processed`
+    with its duration (ADR-020). A skipped delivery or a retry is not an end."""
+    started = deps.clock()
+    outcome = _process_document(document_id, tenant_id, deps)
+    if outcome.status != "skipped":
+        metrics.record_document_processed(
+            outcome.status,
+            deps.clock() - started,
+            outcome.failure_code.value if outcome.failure_code else None,
+        )
+    return outcome
+
+
+def _process_document(
+    document_id: uuid.UUID, tenant_id: uuid.UUID, deps: IngestionDeps
+) -> ProcessOutcome:
     claim = _acquire(document_id, tenant_id, deps)
     if claim is None:
         logger.info(
@@ -313,6 +330,7 @@ def _ingest(
             "embedding_tokens": embedded.tokens,
         },
     )
+    metrics.record_prompt_injection(len(flagged), stage="ingestion")
     return ProcessOutcome("ready", chunk_count=len(drafts))
 
 

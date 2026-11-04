@@ -15,20 +15,30 @@ What gets traced automatically:
 - Celery: the producer (the API) injects the W3C `traceparent` into the message headers
   and the worker continues the same trace, so an upload and its ingestion share one trace.
 
+Metrics (ADR-020): a MeterProvider with a periodic OTLP exporter to the same collector,
+which exposes them for Prometheus on :8889. The instruments live in `app/core/metrics.py`.
+Every process gets its own `service.instance.id`, so the series of two worker processes
+(or of a restarted API) never overwrite each other in the collector.
+
 Without `OTEL_EXPORTER_OTLP_ENDPOINT` spans are still created (so logs carry a trace_id)
-but nothing is exported. If the collector is down, the batch exporter drops the spans and
-logs a warning in its own thread: requests and tasks are never blocked or failed by it.
+but nothing is exported, and no metrics are recorded. If the collector is down, the
+exporters drop the data and log a warning in their own thread: requests and tasks are
+never blocked or failed by it.
 """
 
 import logging
+import uuid
 from typing import Any
 
 from fastapi import FastAPI
-from opentelemetry import trace
+from opentelemetry import metrics, trace
+from opentelemetry.exporter.otlp.proto.grpc.metric_exporter import OTLPMetricExporter
 from opentelemetry.exporter.otlp.proto.grpc.trace_exporter import OTLPSpanExporter
 from opentelemetry.instrumentation.celery import CeleryInstrumentor
 from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
-from opentelemetry.sdk.resources import SERVICE_NAME, Resource
+from opentelemetry.sdk.metrics import MeterProvider
+from opentelemetry.sdk.metrics.export import PeriodicExportingMetricReader
+from opentelemetry.sdk.resources import SERVICE_INSTANCE_ID, SERVICE_NAME, Resource
 from opentelemetry.sdk.trace import TracerProvider
 from opentelemetry.sdk.trace.export import BatchSpanProcessor
 from opentelemetry.trace import SpanKind, Status, StatusCode
@@ -40,12 +50,15 @@ logger = logging.getLogger(__name__)
 
 # Seconds the exporter waits for the collector before giving up on a batch.
 _EXPORT_TIMEOUT_S = 5
+# How often metrics are pushed to the collector.
+_METRICS_EXPORT_INTERVAL_MS = 15_000
 
 _configured = False
 
 
 def configure_telemetry(service_name: str, settings: Settings) -> None:
-    """Install the global TracerProvider and the SQLAlchemy and Celery instrumentation.
+    """Install the global TracerProvider (and MeterProvider, when exporting) and the
+    SQLAlchemy and Celery instrumentation.
 
     Idempotent: later calls in the same process do nothing. If a TracerProvider was
     already installed (for example by a test that captures spans), it is kept.
@@ -54,8 +67,9 @@ def configure_telemetry(service_name: str, settings: Settings) -> None:
     if _configured:
         return
 
+    resource = Resource.create({SERVICE_NAME: service_name, SERVICE_INSTANCE_ID: str(uuid.uuid4())})
     if isinstance(trace.get_tracer_provider(), trace.ProxyTracerProvider):
-        provider = TracerProvider(resource=Resource.create({SERVICE_NAME: service_name}))
+        provider = TracerProvider(resource=resource)
         if settings.otel_exporter_otlp_endpoint:
             exporter = OTLPSpanExporter(
                 endpoint=settings.otel_exporter_otlp_endpoint,
@@ -64,6 +78,8 @@ def configure_telemetry(service_name: str, settings: Settings) -> None:
             )
             provider.add_span_processor(BatchSpanProcessor(exporter))
         trace.set_tracer_provider(provider)
+    if settings.otel_exporter_otlp_endpoint:
+        _configure_metrics(resource, settings.otel_exporter_otlp_endpoint)
 
     _trace_sql_queries()
     # Producer side in the API (injects the trace context); consumer side in the worker.
@@ -77,6 +93,16 @@ def configure_telemetry(service_name: str, settings: Settings) -> None:
             "exporting": bool(settings.otel_exporter_otlp_endpoint),
         },
     )
+
+
+def _configure_metrics(resource: Resource, endpoint: str) -> None:
+    """Install the global MeterProvider. The instruments in `app/core/metrics.py` were
+    created from the global proxy meter, which forwards to this provider from now on."""
+    exporter = OTLPMetricExporter(endpoint=endpoint, insecure=True, timeout=_EXPORT_TIMEOUT_S)
+    reader = PeriodicExportingMetricReader(
+        exporter, export_interval_millis=_METRICS_EXPORT_INTERVAL_MS
+    )
+    metrics.set_meter_provider(MeterProvider(resource=resource, metric_readers=[reader]))
 
 
 def instrument_fastapi(app: FastAPI) -> None:

@@ -1,10 +1,17 @@
-"""Answer a question from the tenant's documents: embed -> retrieve -> generate -> validate.
+"""Answer a question from the tenant's documents:
+embed -> retrieve -> judge relevance -> generate -> validate.
 
-"Not enough information" is decided in exactly three places, never by a score threshold:
+The relevance judge only runs with a real LLM (see `app/retrieval/judge.py`): it keeps
+the retrieved chunks that are actually relevant, and on any failure keeps them all.
+
+"Not enough information" is decided in exactly these places, never by a score threshold:
   (a) retrieval returns nothing: the LLM is not even called;
   (b) the LLM itself declares `insufficient_evidence`;
-  (c) its output fails validation on every attempt (we never show an unchecked answer).
-In all three the answer is `INSUFFICIENT_EVIDENCE_MESSAGE` with status
+  (c) its output fails validation on every attempt (we never show an unchecked answer);
+  (d) the provider's safety filter blocks the prompt or the reply: reported with the
+      warning `content_filtered` and reason `llm_declared`, and never retried (the same
+      input is blocked again). It is an answer, not a 503.
+In all of them the answer is `INSUFFICIENT_EVIDENCE_MESSAGE` with status
 `insufficient_evidence`, confidence `low` and no citations.
 
 Attempts: up to `1 + llm_max_retries`, shared by:
@@ -41,6 +48,7 @@ from sqlalchemy.orm import Session
 
 from app.core.config import Settings
 from app.core.errors import (
+    ContentFilteredError,
     GatewayTimeout,
     PermanentProviderError,
     ProviderError,
@@ -57,6 +65,7 @@ from app.core.tracing import (
     GEN_AI_INPUT_TOKENS,
     GEN_AI_OUTPUT_TOKENS,
     GEN_AI_REQUEST_MODEL,
+    LLM_CONTENT_FILTERED,
     LLM_LATENCY_MS,
     LLM_RETRIES,
     LLM_TOKENS_ESTIMATED,
@@ -71,6 +80,7 @@ from app.generation.validate import ValidatedAnswer, ValidationFailure, validate
 from app.providers.embeddings.base import EmbeddingsProvider
 from app.providers.llm.base import ContextChunk, LLMProvider, PromptInput
 from app.retrieval.hybrid import RetrievedChunk, search
+from app.retrieval.judge import KeepAll, RelevanceJudge
 from app.schemas.query import (
     INSUFFICIENT_EVIDENCE_MESSAGE,
     AnswerDetails,
@@ -96,6 +106,9 @@ _sleep = time.sleep  # replaced in tests
 # Called with "searching", "drafting" or "validating".
 PhaseCallback = Callable[[str], None]
 
+# Warning added when the provider's safety filter blocked the answer.
+CONTENT_FILTERED_WARNING = "content_filtered"
+
 
 @dataclass(frozen=True)
 class AnswerOutcome:
@@ -113,6 +126,16 @@ class _Generation:
     attempts: int
     tokens_in: int
     tokens_out: int
+    content_filtered: bool = False  # the provider's safety filter blocked it
+
+
+@dataclass(frozen=True)
+class _Retrieval:
+    """The chunks the LLM receives, and how many retrieval found before the judge."""
+
+    chunks: list[RetrievedChunk]
+    candidates: int
+    judged: bool
 
 
 def answer_question(
@@ -124,6 +147,7 @@ def answer_question(
     llm: LLMProvider,
     settings: Settings,
     on_phase: PhaseCallback | None = None,
+    judge: RelevanceJudge | None = None,
 ) -> QueryResponse:
     """The validated answer, with `details` filled. `conversation_id` and `message_id`
     stay null: persisting the turn is the caller's job."""
@@ -135,6 +159,7 @@ def answer_question(
         llm=llm,
         settings=settings,
         on_phase=on_phase,
+        judge=judge,
     ).response
 
 
@@ -147,8 +172,10 @@ def answer_with_usage(
     llm: LLMProvider,
     settings: Settings,
     on_phase: PhaseCallback | None = None,
+    judge: RelevanceJudge | None = None,
 ) -> AnswerOutcome:
-    """`answer_question` plus the token usage of the LLM calls."""
+    """`answer_question` plus the token usage of the LLM calls. `judge` defaults to none
+    (keyless mode: the retrieved chunks go to the LLM unchanged)."""
     started = time.perf_counter()
     notify = on_phase or _no_phase
     with span("query.answer", **{TENANT_ID: str(tenant_id)}) as answer_span:
@@ -160,7 +187,7 @@ def answer_with_usage(
                 raise _to_app_error(exc) from exc
 
         with span("query.retrieve"):
-            chunks = search(
+            candidates = search(
                 session,
                 tenant_id=tenant_id,
                 query_vector=query_vector,
@@ -169,23 +196,30 @@ def answer_with_usage(
                 settings=settings,
             )
 
+        selection = (judge or KeepAll()).judge(question, candidates)
+        retrieval = _Retrieval(selection.chunks, len(candidates), selection.judged)
+        chunks = retrieval.chunks
         _link_sources(chunks)
 
         if not chunks:
             nothing = _Generation(answer=None, attempts=0, tokens_in=0, tokens_out=0)
             return _insufficient(
-                answer_span, tenant_id, "no_results", chunks, nothing, llm, started
+                answer_span, tenant_id, "no_results", retrieval, nothing, llm, started
             )
 
         generation = _generate_validated(question, chunks, llm, settings, notify)
         answer, attempts = generation.answer, generation.attempts
+        if generation.content_filtered:
+            return _insufficient(
+                answer_span, tenant_id, "llm_declared", retrieval, generation, llm, started
+            )
         if answer is None:
             return _insufficient(
-                answer_span, tenant_id, "validation_failed", chunks, generation, llm, started
+                answer_span, tenant_id, "validation_failed", retrieval, generation, llm, started
             )
         if answer.insufficient_evidence:
             return _insufficient(
-                answer_span, tenant_id, "llm_declared", chunks, generation, llm, started
+                answer_span, tenant_id, "llm_declared", retrieval, generation, llm, started
             )
 
         citations = _enrich_citations(answer, chunks)
@@ -215,7 +249,7 @@ def answer_with_usage(
             confidence=confidence,
             citations=citations,
             warnings=[],
-            details=_details(chunks, attempts, None, llm, started),
+            details=_details(retrieval, attempts, None, llm, started),
         )
         return AnswerOutcome(response, generation.tokens_in, generation.tokens_out)
 
@@ -275,6 +309,12 @@ def _generate_validated(
                 continue
             except PermanentProviderError as exc:
                 raise _to_app_error(exc) from exc
+            except ContentFilteredError:
+                # Blocked by the provider's safety filter: an outcome, not a failure.
+                # Not retried: the same question and documents are blocked again.
+                set_attributes(llm_span, **{LLM_CONTENT_FILTERED: True})
+                logger.warning("llm.content_filtered", extra={"attempt": attempt})
+                return _Generation(None, attempt, tokens_in, tokens_out, content_filtered=True)
 
             tokens_in += result.input_tokens
             tokens_out += result.output_tokens
@@ -355,13 +395,14 @@ def _found_by(chunk: RetrievedChunk) -> FoundBy:
 
 
 def _details(
-    chunks: list[RetrievedChunk],
+    retrieval: _Retrieval,
     attempts: int,
     reason: InsufficientReason | None,
     llm: LLMProvider,
     started: float,
 ) -> AnswerDetails:
     # Deliberately no chunk content: details are stored and shown, the text is not.
+    chunks = retrieval.chunks
     return AnswerDetails(
         retrieved=[
             RetrievedChunkOut(
@@ -381,6 +422,8 @@ def _details(
         latency_ms=round((time.perf_counter() - started) * 1000),
         llm_model=llm.model_id,
         trace_id=current_trace_id(),
+        judged=retrieval.judged,
+        judge_candidates=retrieval.candidates if retrieval.judged else None,
     )
 
 
@@ -388,7 +431,7 @@ def _insufficient(
     answer_span: Span,
     tenant_id: uuid.UUID,
     reason: InsufficientReason,
-    chunks: list[RetrievedChunk],
+    retrieval: _Retrieval,
     generation: _Generation,
     llm: LLMProvider,
     started: float,
@@ -398,9 +441,15 @@ def _insufficient(
         answer_span,
         **{ANSWER_INSUFFICIENT: True, ANSWER_CONFIDENCE: "low", ANSWER_CITATIONS: 0},
     )
+    warnings = [CONTENT_FILTERED_WARNING] if generation.content_filtered else []
     logger.info(
         "query.insufficient",
-        extra={"tenant_id": str(tenant_id), "reason": reason, "attempts": attempts},
+        extra={
+            "tenant_id": str(tenant_id),
+            "reason": reason,
+            "attempts": attempts,
+            "content_filtered": generation.content_filtered,
+        },
     )
     response = QueryResponse(
         conversation_id=None,
@@ -408,7 +457,7 @@ def _insufficient(
         status="insufficient_evidence",
         confidence="low",
         citations=[],
-        warnings=[],
-        details=_details(chunks, attempts, reason, llm, started),
+        warnings=warnings,
+        details=_details(retrieval, attempts, reason, llm, started),
     )
     return AnswerOutcome(response, generation.tokens_in, generation.tokens_out)

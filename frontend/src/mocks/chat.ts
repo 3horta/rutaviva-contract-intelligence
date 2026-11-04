@@ -120,6 +120,7 @@ export function answer(question: string, docs: Searchable[], previousQuestion: s
     latency_ms: 1_800 + Math.round(Math.random() * 2_400),
     llm_model: MOCK_MODEL,
     trace_id: randomHex(32),
+    judged: false,
   };
 
   // Nothing found, or only loose matches for a specific question: not enough evidence.

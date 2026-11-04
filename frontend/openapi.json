@@ -762,6 +762,22 @@
             "type": "boolean",
             "title": "Uses Context",
             "default": false
+          },
+          "judged": {
+            "type": "boolean",
+            "title": "Judged",
+            "default": false
+          },
+          "judge_candidates": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Candidates"
           }
         },
         "type": "object",
@@ -1260,6 +1276,17 @@
             ],
             "title": "Llm Model"
           },
+          "llm_fast_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Fast Model"
+          },
           "embeddings_provider": {
             "type": "string",
             "enum": [
@@ -1279,6 +1306,7 @@
           "status",
           "llm_provider",
           "llm_model",
+          "llm_fast_model",
           "embeddings_provider",
           "embedding_model"
         ],
@@ -1538,7 +1566,7 @@
           "found_by"
         ],
         "title": "RetrievedChunkOut",
-        "description": "A chunk the answer was generated from. Ids, page and score only: never content."
+        "description": "A chunk the answer was generated from (after the relevance judge, if any). Ids,\npage and score only: never content."
       },
       "StatusCounts": {
         "properties": {

@@ -84,7 +84,11 @@ def test_reading_order_and_top_left_origin(extractor):
     # put it near the page height).
     assert first_page.blocks[0].bbox.top < first_page.height / 4
     tops = [b.bbox.top for b in first_page.blocks if b.kind not in ("page_header", "page_footer")]
-    assert tops == sorted(tops)
+    # Reading order comes from Docling's layout model, not from sorting by position: it
+    # may read a multi-column grid after the text below it. Allow one jump back up the
+    # page; a bottom-left origin would reverse the whole page.
+    jumps_back = sum(1 for above, below in zip(tops, tops[1:], strict=False) if below < above)
+    assert jumps_back <= 1
     assert any(b.kind in ("heading", "title") for b in first_page.blocks)
 
 

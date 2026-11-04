@@ -1,4 +1,4 @@
-import type { Confidence, FoundBy, QueryPhase } from "../../api/types";
+import type { Confidence, FoundBy, InsufficientReason, QueryPhase } from "../../api/types";
 import type { Tone } from "../documents/status";
 
 /** Used when the server sends a phase without a label. */
@@ -40,3 +40,19 @@ export const FOUND_BY_LABELS: Record<FoundBy, string> = {
 
 /** A stored turn whose answer was stopped before the server saved it. */
 export const INTERRUPTED_TEXT = "Interrupted: the answer was stopped before it was saved.";
+
+/** Why there was no answer, in the user's terms. */
+export const INSUFFICIENT_REASONS: Record<InsufficientReason, string> = {
+  no_results: "Nothing in your documents matched this question.",
+  all_flagged:
+    "The only related passages looked like instructions to the assistant, so they were not used.",
+  llm_declared: "Related passages were found, but none of them answers the question.",
+  validation_failed:
+    "An answer was drafted, but its citations could not be checked against your documents, so it was withheld.",
+};
+
+export const REPHRASE_HINT =
+  "Try rephrasing the question or making it more specific: name the contract, the supplier or the clause you mean.";
+
+/** Closest passages listed under a "not enough evidence" answer. */
+export const MAX_RELATED = 3;

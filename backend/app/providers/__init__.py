@@ -1,6 +1,6 @@
 """Provider factories: the only place that decides which implementation is active."""
 
-from functools import lru_cache
+import threading
 
 from app.core.config import Settings
 from app.providers.embeddings.base import EmbeddingsProvider
@@ -18,9 +18,18 @@ def get_embeddings(settings: Settings) -> EmbeddingsProvider:
     raise NotImplementedError("gemini embeddings are not wired yet")
 
 
-@lru_cache
-def _local_embeddings(model_name: str, dim: int, batch_size: int) -> EmbeddingsProvider:
-    # Loading the model takes seconds and hundreds of MB: once per process.
-    from app.providers.embeddings.local import LocalEmbeddings
+# Loading the model takes seconds and hundreds of MB: exactly once per process. A lock,
+# not just lru_cache: lru_cache does not stop two concurrent first requests (two API
+# threads) from both loading the model.
+_local_lock = threading.Lock()
+_local_instances: dict[tuple[str, int, int], EmbeddingsProvider] = {}
 
-    return LocalEmbeddings(model_name, dim, batch_size=batch_size)
+
+def _local_embeddings(model_name: str, dim: int, batch_size: int) -> EmbeddingsProvider:
+    key = (model_name, dim, batch_size)
+    with _local_lock:
+        if key not in _local_instances:
+            from app.providers.embeddings.local import LocalEmbeddings
+
+            _local_instances[key] = LocalEmbeddings(model_name, dim, batch_size=batch_size)
+        return _local_instances[key]

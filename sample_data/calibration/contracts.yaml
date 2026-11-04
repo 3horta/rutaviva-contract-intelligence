@@ -1,0 +1,116 @@
+# Real public contracts used to calibrate (and then evaluate) the keyless answer mode.
+#
+# The PDFs are NOT in this repository: they are public procurement records and terms
+# published by US state/county governments and carriers, but their reuse terms were not
+# reviewed, so only their source is recorded here. To reproduce the calibration, download
+# each `source_url` into a local folder (default: local-docs/calibration-contracts/, which
+# git ignores) with the given `file` name and check its `sha256`; the verifier
+# (verify_questions.py) refuses a file whose hash does not match.
+#
+# Split BY DOCUMENT, never by question: thresholds are tuned only on `calibration`
+# documents; `eval` documents are held out and used once, at the end. Documents that
+# share a template (the two State of Maine repair master agreements; the two State of
+# Missouri fuel card contracts) are kept in the same set, so boilerplate shared between
+# them cannot leak from calibration into evaluation.
+version: 1
+contracts:
+  # ------------------------------------------------------------------ calibration
+  - file: maine_gmc_repair_pm_2025.pdf
+    set: calibration
+    type: maintenance
+    title: "State of Maine Master Agreement 18P 24032800000000000118 - Repair & Preventative Maintenance, Light & Heavy-Duty Vehicles (O'Connor GMC)"
+    source_url: "https://www.maine.gov/dafs/bbm/procurementservices/sites/maine.gov.dafs.bbm.procurementservices/files/inline-files/2025%20MA%20240328-118%20OConnor%20GMC%20Repair%20and%20PM%20webdoc.pdf"
+    pages: 17
+    sha256: ca127c8637117d29a50cb3ccfcefb43d3d2184437eb90ca62bfe94719644d9c5
+  - file: maine_tire_repair_pm_2025.pdf
+    set: calibration
+    type: tires_maintenance
+    title: "State of Maine Master Agreement 18P 24051600000000000133 - Repair & Preventative Maintenance, Light & Heavy-Duty Vehicles (Maine Commercial Tire)"
+    source_url: "https://www.maine.gov/dafs/bbm/procurementservices/sites/maine.gov.dafs.bbm.procurementservices/files/inline-files/2025%20MA%20240516-133%20Me%20Com%20Tire%20Repair%20and%20PM.pdf"
+    pages: 16
+    sha256: 14f4765d36a215586af2d9fa396893ea3382ee6c0f102c1eecef9a0554b784e6
+  - file: calhoun_itb_fleet_maint_2026.pdf
+    set: calibration
+    type: maintenance
+    title: "Calhoun County Commission (Alabama) - Invitation to Bid, Fleet Maintenance and Repair Services (2026)"
+    source_url: "https://calhouncountyal.gov/admin/docs/2026_ITB-Fleet-Maintenance.pdf"
+    pages: 22
+    sha256: 3b0133cd43703c88d77b77e487f9e5e508e3c5e9aee6c0b7de6d7ef7a6959889
+  - file: md_maint_repair_amend4.pdf
+    set: calibration
+    type: maintenance
+    title: "Maryland DBM - Amendment #4 to RFP 050B1400025, Maintenance and Repair Services for State-Owned Vehicles (2011)"
+    source_url: "https://dbm.maryland.gov/contracts/Documents/ContractLibrary/Services/VehicleMaint2011/MaintRepairAmend4.pdf"
+    pages: 2
+    sha256: 42c2b6ec760fe804a3c60bfaba4e40e457364e69bd0bae0a21e3241452940a28
+  - file: maine_bulk_diesel_2023.pdf
+    set: calibration
+    type: fuel
+    title: "State of Maine Master Agreement 18P 22051900000000000129 - Bulk Diesel Statewide, modification (Dead River Co.)"
+    source_url: "https://www.maine.gov/dafs/bbm/procurementservices/sites/maine.gov.dafs.bbm.procurementservices/files/inline-files/2023%20MA%20May%20220519-129-Bulk%20Diesel%20Onroad%20-%20Signed.pdf"
+    pages: 41
+    sha256: 1481d14c627762cf270fa8a2615465aeaa49f5a924a1639be7d3932b353e337f
+  - file: fedex_brokerage_tc.pdf
+    set: calibration
+    type: carriage
+    title: "FedEx Supply Chain - Managed Transportation Terms & Conditions"
+    source_url: "https://fedex.com/content/dam/fedex/us-united-states/logistics/FedEx-Brokerage-TandC.pdf"
+    pages: 9
+    sha256: 2ba2994494bdce51cb31f1d1bd1604544d01a5ea67913bf6a64e00f6691c0fd6
+  - file: stg_drayage_rules.pdf
+    set: calibration
+    type: carriage
+    title: "STG Logistics - Drayage Rules (09.12.23)"
+    source_url: "https://www.stgusa.com/wp-content/uploads/2024/03/drayage_rules-09.12.23.pdf"
+    pages: 20
+    sha256: 41a59b23ff20936441d751c064c79454a5c6b96330651648da155d8f59370bb0
+  - file: tst_terms_of_carriage.pdf
+    set: calibration
+    type: carriage
+    title: "TST, Inc. - Terms and Conditions of Carriage"
+    source_url: "https://tst-inc.com/wp-content/uploads/2023/06/Terms-and-Conditions-of-Carriage.pdf"
+    pages: 2
+    sha256: 8a61d6dea8f5157cc6560cde58774af500231baac5630ea4497e780e45994611
+  # ------------------------------------------------------------------ eval (held out)
+  - file: sc_tires_statewide_2019.pdf
+    set: eval
+    type: tires
+    title: "South Carolina Materials Management Office - Statewide Tires and Service, Solicitation 540010311"
+    source_url: "https://www.procurement.sc.gov/files/contracts/Tires%20statewide%20july%201%202019.pdf"
+    pages: 9
+    sha256: c1cfb8c93df29b320c5c13b56997b5f6da4ac4f9359a704be3c5ea1817e07e6d
+  - file: sc_sass_002a.pdf
+    set: eval
+    type: maintenance
+    title: "South Carolina State Fleet Management - SASS-002A Vendor Blanket Agreement, Preventative Maintenance / Parts and Labor"
+    source_url: "https://admin.sc.gov/sites/admin/files/Documents/Fleet/SASS-002A.pdf"
+    pages: 5
+    sha256: 97c31ba20b6ce71323e27f23f6bbe924233bee6f781176c511a8144f2d3c38ab
+  - file: mo_wex_fuel_card_2021.pdf
+    set: eval
+    type: fuel
+    title: "State of Missouri - Statewide Contract CC211293001, Fleet Card with Related Services (2021)"
+    source_url: "https://oa.mo.gov/sites/default/files/WEXFleetFuelCardContract2021_0.pdf"
+    pages: 17
+    sha256: 3e95591adc02ab1aed297fa8dab2f3d33d95c436cfcc3876908426b9c53793d1
+  - file: mo_fuel_card_2016.pdf
+    set: eval
+    type: fuel
+    title: "State of Missouri - Statewide Contract, Fuel Card with Related Vehicle Fuel Management, Transaction and Reporting Services (2016)"
+    source_url: "https://oa.mo.gov/sites/default/files/cc160898%207.20.16%20through%207.19.20_0.pdf"
+    pages: 10
+    sha256: dbb203b8da25689d2ac652e72a8b4e6ace24a1e5905bc677fd9008d6b8b43ecb
+  - file: safeway_trucking_terms.pdf
+    set: eval
+    type: carriage
+    title: "Safeway Trucking Corporation - Terms & Conditions of Motor Carrier Service (2022)"
+    source_url: "https://eastcoastwarehouse.com/wp-content/uploads/2022/04/Safeway-Trucking-General-Terms-Conditions-2022_060122.pdf"
+    pages: 2
+    sha256: 5f976a81090a9e3706490f379f001286d93a02e0a844fe087ae99a0cac8f6980
+  - file: carver_delivery_terms.pdf
+    set: eval
+    type: carriage
+    title: "Carver Logistics - Delivery Services Terms & Conditions (v1.1, January 2025)"
+    source_url: "https://www.carvercompanies.com/img/uploads/file/Logistics%20Delivery%20Services%20Terms%20&%20Conditions%20(v1.%20Jan%202025).pdf"
+    pages: 3
+    sha256: 6f5d2db2c0752861cbd28c04b3d8add704b805cddc526825647d245ae9606051

@@ -17,6 +17,7 @@ are collected at the end once the related milestones are done.
 | [ADR-008](#adr-008--text-extraction-pdfplumber-by-default-docling-optional) | Text extraction: pdfplumber by default, Docling optional | Accepted |
 | [ADR-009](#adr-009--cpu-inference-load-models-once-bound-the-threads) | CPU inference: load models once, bound the threads | Accepted |
 | [ADR-010](#adr-010--chat-backend-streamed-phases-persisted-turns-resolved-follow-ups) | Chat backend: streamed phases, persisted turns, resolved follow-ups | Accepted |
+| [ADR-011](#adr-011--keyless-answers-a-calibrated-not-enough-information-rule) | Keyless answers: a calibrated "not enough information" rule | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
@@ -168,6 +169,40 @@ are collected at the end once the related milestones are done.
   - Answering follow-ups without context: "and the cap?" alone retrieves noise.
   - A separate query-log table: the assistant message carries the metadata, and the trace has the detail.
 - **Verified by:** `tests/integration/test_conversations_api.py`: event order, error event with nothing persisted, errors before the stream, persistence, retry, follow-up retrieval, and 404 for another tenant's conversation everywhere. Also `tests/unit/test_resolver.py`.
+
+## ADR-011 · Keyless answers: a calibrated "not enough information" rule
+
+- **Context:** without a key, the fake LLM answers extractively: it ranks the sentences of the retrieved chunks by cosine similarity to the question (active embedding model) and quotes the best ones. It must say "not enough information" when nothing relevant was retrieved. Cosine scales depend on the model (BGE puts most same-domain sentences at 0.5-0.9), so the cut is measured per model, on real contracts, not guessed.
+- **Data:** 14 public US fleet, fuel and carriage contracts (`sample_data/calibration/contracts.yaml`), split **by document**: 8 to calibrate, 6 held out. Questions are what a procurement user would ask, checked page by page against the PDFs (`verify_questions.py`): 37 for calibration (23 answerable, 8 on topics absent from every document, 6 near misses where a close topic is present but the fact is not) and 28 held out (19 / 5 / 4). Traps were removed on review: near misses answered by a near-identical sentence, a question whose documents contradict each other, an answer that needs two pages read together.
+- **Method:** `scripts/calibrate_extractive.py` reproduces the app: pdfplumber and the app's chunking, chunks in a throwaway tenant of Postgres, the app's hybrid search, the fake LLM's sentence scoring. An answerable question counts as right only if a quoted sentence contains the expected text; an unanswerable one only if it is refused.
+- **Compared on the calibration set (N = 37):**
+
+  | Rule | Best accuracy | Value | Range with that accuracy | Answerable / unanswerable | AUC |
+  |---|---|---|---|---|---|
+  | (a) best similarity ≥ t | 27/37 (73%) | 0.64 | 0.585-0.685 | 16/23 · 11/14 | 0.89 |
+  | (b) best minus the mean of the other candidates ≥ t | 29/37 (78%) | 0.15 | 0.145-0.155 | 19/23 · 10/14 | 0.80 |
+  | (c) (a) and the best chunk was found by full text | 27/37 (73%) | 0.64 | 0.585-0.685 | 16/23 · 11/14 | 0.83 |
+
+  - Scores of answerable questions: 0.61-0.88 (median 0.72). Unanswerable: 0.52-0.72 (median 0.58). Topics absent from every document never score above 0.59; the overlap is near misses (gasoline next to the diesel price, a minimum order next to delivery terms, a weight limit next to the overweight rules).
+  - (b) wins by two questions, but only within ±0.005 of its value, and it separates the classes worse (AUC 0.80): it would not hold on other documents.
+  - (c) changes nothing: the full-text query ORs the question's words, so it matched the best chunk for 13 of the 14 unanswerable questions.
+- **Decision:** rule (a), the simplest. `bge-base-en-v1.5@768` gets minimum 0.64 and margin 0.05 in `app/core/similarity.py` (the middle of the ranges that give the best score). The app still refuses to start with a model that has no entry.
+- **Held out, run once (N = 28, `results_eval_bge-base-en-v1.5.json`):** 13/28 right.
+  - Absent topics: 5/5 refused. Lexical questions: 7/12. Paraphrased questions: 1/7. Near misses: 0/4 (each quoted the closest clause: warranty adjustments, card limits, contract periods, insurance limits).
+  - Retrieval found the expected page for 19/19 answerable questions, but the sentence with the answer was among the candidates for only 14, and the expected page was cited for 10.
+  - Misses, by cause:
+    - Answers refused just below the cut (0.61-0.63), mostly paraphrases: late-payment interest, patrol-car test drive, hidden-damage window, yearly liability cap. They fall inside the calibration range, so the calibration set had too few hard paraphrases to place the cut precisely.
+    - The answering chunk was not retrieved, although another chunk of its page was: Safeway's cargo limit, Safeway's claim deadline, the carriers' lien.
+    - Another sentence ranked first: the ClearView fee, lost-card liability.
+    - The sentence splitter cuts "8:00 a.m. to 5:00 p.m." after "a.m.".
+    - The extractor drops a clause printed in the bottom page margin (taken as a footer): the tire production-date limit.
+- **Rejected:** a separate "high confidence" threshold: a similarity is not a probability of being right, so the fake LLM answers `high` and the service caps it with its retrieval signal.
+- **Consequences and limits:**
+  - Keyless mode is good at refusing questions on absent topics and at quoting clauses worded like the question. It misses paraphrases and quotes a neighbouring clause for near misses. An extractive QA model, or a real LLM (`LLM_PROVIDER=litellm`), is the next step; the numbers here are the baseline to beat.
+  - The retrieval, splitter and extractor misses above are not about the rule; each is a separate follow-up.
+  - 37 and 28 questions are small samples: ±1 question moves accuracy by about 3 points.
+  - Reproducing needs the PDFs, which are not in the repository: download them from the `source_url`s of the manifest (`sample_data/calibration/README.md`).
+- **Verified by:** `sample_data/calibration/results_bge-base-en-v1.5.json` (every rule, the score distributions and the per-question numbers, with no document text), `results_eval_bge-base-en-v1.5.json`, and `tests/unit/test_config.py` (the default configuration starts).
 
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 

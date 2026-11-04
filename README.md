@@ -145,7 +145,8 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 - **Metrics:** no OpenTelemetry metrics or dashboards (Prometheus or Grafana); quality and cost signals are span attributes and logs.
 - **Traces from the browser:** traces start at the API.
 - **Product features:** 👍/👎 feedback on answers, suggested follow-up questions.
-- **Operations:** a periodic sweep of expired leases (an expired lease is taken over when the task is delivered again), Docker secrets for provider keys, and a pre-built image in a registry.
+- **Operations:** a periodic sweep of expired leases (an expired lease is taken over when the task is delivered again), a transactional outbox for enqueuing (a crash between the upload's commit and the enqueue leaves the document `pending`), Docker secrets for provider keys, and a pre-built image in a registry.
+- **Deleting documents:** there is no endpoint to delete a document with its file and chunks.
 - **Users:** auth is one test JWT per tenant; there are no users, roles or token revocation.
 
 The reasons, and what each would cost, are in [DECISIONS.md](DECISIONS.md).

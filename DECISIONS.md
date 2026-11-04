@@ -500,7 +500,9 @@ Each case gets a different response:
 - **Injection detection** is pattern-based: a paraphrased or split injection can pass. The prompt's delimiting and the citation validation still apply (ADR-013).
 - **Disagreement detection** compares figures, not meaning (ADR-013).
 - **Vector search with many tenants:** the HNSW index is scanned first and the tenant filter applied after it, so with many tenants the vector branch can return fewer than its 40 candidates (never another tenant's rows). Whether RLS stops the indexes from being used was not measured with `EXPLAIN` (ADR-002). The options are pgvector's iterative scans, a higher `ef_search` or per-tenant partial indexes.
-- **Auth:** one test JWT per tenant; no users, roles or revocation.
+- **Auth:** one test JWT per tenant; no users, roles or revocation. The web app keeps the tokens in `sessionStorage` (they last as long as the tab), where any script running on the page could read them; the strict Content-Security-Policy (ADR-F04) is the mitigation. A production setup would keep them out of JavaScript (an `HttpOnly` cookie set by a backend-for-frontend).
+- **Enqueue after commit, without an outbox:** the upload commits the `pending` document and then enqueues the task. If `send_task` fails, the document is marked `failed`; if the API process dies between the two, the document stays `pending`, because nothing sweeps old `pending` documents. A transactional outbox (or a periodic re-enqueue) would close that window.
+- **No document deletion:** there is no endpoint to delete a document, its file and its chunks.
 - **Evaluation:** 21 hand-written questions prove behaviours, not general quality (ADR-014).
 
 ## How generative AI was used

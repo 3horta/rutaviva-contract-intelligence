@@ -110,7 +110,13 @@ def test_tokens_are_estimated_and_flagged(fake_litellm) -> None:
 
 
 def test_factory_builds_gemini_with_the_settings_model_id(make_settings, fake_litellm) -> None:
-    settings = make_settings(EMBEDDINGS_PROVIDER="gemini", GEMINI_API_KEY="k")
+    # With a real LLM: the fake one has no calibrated thresholds for Gemini embeddings.
+    settings = make_settings(
+        LLM_PROVIDER="litellm",
+        LLM_MODEL="gemini/gemini-3.5-flash",
+        EMBEDDINGS_PROVIDER="gemini",
+        GEMINI_API_KEY="k",
+    )
     embeddings = get_embeddings(settings)
     assert isinstance(embeddings, GeminiEmbeddings)
     # Must match what documents store, or search would find nothing after indexing.

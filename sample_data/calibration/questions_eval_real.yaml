@@ -1,0 +1,392 @@
+# Held-out evaluation questions over six real public contracts (set: eval).
+# NEVER used to tune thresholds: run once, after calibration on the calibration set.
+# Pages are physical 1-based pages of the PDFs listed in contracts.yaml (pypdf text).
+# Answers and absent_terms are checked with sample_data/calibration/verify_questions.py --set eval;
+# every answering sentence was also re-read by hand to confirm it answers the question.
+#
+# Fair questions, not traps (same review as the calibration set, ADR-011): near-miss
+# items whose topic sentence is nearly the question itself were removed (a Safeway fuel
+# surcharge that "may be revised" with no figure, a refrigerated load whose temperature
+# "is stated on the customer's notice", an after-hours rate next to the emergency repair
+# clause).
+version: 1
+set: eval
+questions:
+  # ---------------------------------------------------------------- lexical
+  - id: tires-overcharge-reimbursement
+    tenant: tenant_eval
+    question: "If an audit finds the State was overcharged for tires, what must the vendor reimburse?"
+    kind: lexical
+    soft: false
+    note: "Invoicing clause, last paragraph of the tire contract: overcharge difference plus an additional 10%."
+    expect:
+      outcome: answered
+      sources:
+        - document: sc_tires_statewide_2019.pdf
+          page: 9
+      answer_has_any: ["additional ten", "10%"]
+      results_in: {tenant: tenant_eval}
+
+  - id: tires-production-date-limit
+    tenant: tenant_eval
+    question: "How old can a tire's production date be when it is supplied under the statewide tire contract?"
+    kind: lexical
+    soft: false
+    note: "Special Contract Clauses: no production date may exceed 48 months from the contract effective date."
+    expect:
+      outcome: answered
+      sources:
+        - document: sc_tires_statewide_2019.pdf
+          page: 8
+      answer_has_any: ["48 MONTHS"]
+      results_in: {tenant: tenant_eval}
+
+  - id: tires-delivery-over-ten
+    tenant: tenant_eval
+    question: "When must tire quantities in excess of ten be delivered if they are not available at the time of order?"
+    kind: lexical
+    soft: false
+    note: "Delivery Time clause: within three (3) days after receipt of order."
+    expect:
+      outcome: answered
+      sources:
+        - document: sc_tires_statewide_2019.pdf
+          page: 9
+      answer_has_any: ["three (3) days"]
+      results_in: {tenant: tenant_eval}
+
+  - id: sass-invoice-deadline
+    tenant: tenant_eval
+    question: "Can State Fleet Management refuse payment for an invoice received late after service completion?"
+    kind: lexical
+    soft: false
+    note: "Last sentence of page 1 of SASS-002A: payment may be refused after thirty (30) days of service completion."
+    expect:
+      outcome: answered
+      sources:
+        - document: sc_sass_002a.pdf
+          page: 1
+      answer_has_any: ["thirty (30) days"]
+      results_in: {tenant: tenant_eval}
+
+  - id: sass-oil-change-quarts
+    tenant: tenant_eval
+    question: "How many quarts of oil are included in the preventative maintenance oil change?"
+    kind: lexical
+    soft: false
+    note: "Preventative Maintenance items, item a: change oil, filter and lube (up to five quarts)."
+    expect:
+      outcome: answered
+      sources:
+        - document: sc_sass_002a.pdf
+          page: 3
+      answer_has_any: ["up to five quarts"]
+      results_in: {tenant: tenant_eval}
+
+  - id: sass-parts-warranty
+    tenant: tenant_eval
+    question: "What warranty applies to parts installed by the maintenance vendor?"
+    kind: lexical
+    soft: false
+    note: "Note 7 on page 2: manufacturer's warranty applies; vendor warranty of at least three months."
+    expect:
+      outcome: answered
+      sources:
+        - document: sc_sass_002a.pdf
+          page: 2
+      answer_has_any: ["three months", "Manufacturer's Warranty shall apply"]
+      results_in: {tenant: tenant_eval}
+
+  - id: wex-account-suspension
+    tenant: tenant_eval
+    question: "When will a WEX fuel card account be suspended if payment is not received?"
+    kind: lexical
+    soft: false
+    note: "Late Fees/Account Suspension: suspended 70 days after invoice date (shut off at 120). Same text in both Missouri contracts."
+    expect:
+      outcome: answered
+      sources:
+        - document: mo_fuel_card_2016.pdf
+          page: 9
+        - document: mo_wex_fuel_card_2021.pdf
+          page: 12
+      answer_has_any: ["70 days"]
+      results_in: {tenant: tenant_eval}
+
+  - id: wex-clearview-fee
+    tenant: tenant_eval
+    question: "What is the monthly fee for the ClearView Data Analytics fuel analysis package?"
+    kind: lexical
+    soft: false
+    note: "ClearView Data Analytics Platform paragraph: $0.20 per active card per month (both Missouri contracts; the 2021 fee table also lists Clearview Advanced at $0.50, a different product)."
+    expect:
+      outcome: answered
+      sources:
+        - document: mo_fuel_card_2016.pdf
+          page: 9
+        - document: mo_wex_fuel_card_2021.pdf
+          page: 13
+      answer_has_any: ["$0.20 per active card"]
+      results_in: {tenant: tenant_eval}
+
+  - id: wex-2021-payment-due
+    tenant: tenant_eval
+    question: "Within how many days of the invoice date are fleet card purchases due and payable in full?"
+    kind: lexical
+    soft: false
+    note: "2021 contract, Billing clause, last sentence: due within 26 days of the invoice date (the 2016 contract has no such sentence)."
+    expect:
+      outcome: answered
+      sources:
+        - document: mo_wex_fuel_card_2021.pdf
+          page: 7
+      answer_has_any: ["within 26 days"]
+      results_in: {tenant: tenant_eval}
+
+  - id: wex-2016-pfs-hours
+    tenant: tenant_eval
+    question: "During what hours can fleet managers reach the WEX Premium Fleet Services account managers?"
+    kind: lexical
+    soft: false
+    note: "2016 contract, WEX Point of Contact for Fleet Managers: 8:00 a.m. to 5:00 p.m. Eastern (section dropped in 2021)."
+    expect:
+      outcome: answered
+      sources:
+        - document: mo_fuel_card_2016.pdf
+          page: 5
+      answer_has_any: ["8:00 a.m. to 5:00 p.m."]
+      results_in: {tenant: tenant_eval}
+
+  - id: safeway-cargo-liability-limit
+    tenant: tenant_eval
+    question: "What is Safeway Trucking's liability limit for cargo loss or damage?"
+    kind: lexical
+    soft: false
+    note: "Section 6: lesser of $2.50 per pound, cost to repair/replace, or $100,000 per trailer."
+    expect:
+      outcome: answered
+      sources:
+        - document: safeway_trucking_terms.pdf
+          page: 1
+      answer_has_any: ["$2.50 per pound", "$100,000 per trailer"]
+      results_in: {tenant: tenant_eval}
+
+  - id: carver-late-payment-interest
+    tenant: tenant_eval
+    question: "What interest accrues on past-due Carver invoices and when does it start?"
+    kind: lexical
+    soft: false
+    note: "Section 9: 1.5% per month starting on day 46 after the due date."
+    expect:
+      outcome: answered
+      sources:
+        - document: carver_delivery_terms.pdf
+          page: 1
+      answer_has_any: ["1.5% per month", "day 46"]
+      answer_lacks: ["1% per month"]
+      results_in: {tenant: tenant_eval}
+
+  # ---------------------------------------------------------------- semantic
+  - id: wex-lost-card-liability
+    tenant: tenant_eval
+    question: "If one of our fuel cards goes missing, who pays for whatever gets bought with it before we tell anyone?"
+    kind: semantic
+    soft: false
+    note: "Lost/Stolen/Terminated Cards: agencies are liable for unauthorized use until notification. Same text in both Missouri contracts."
+    expect:
+      outcome: answered
+      sources:
+        - document: mo_fuel_card_2016.pdf
+          page: 6
+        - document: mo_wex_fuel_card_2021.pdf
+          page: 9
+      answer_has_any: ["until notification", "relieved from any liability"]
+      results_in: {tenant: tenant_eval}
+
+  - id: tires-shop-waiting-time
+    tenant: tenant_eval
+    question: "When we bring a state truck into the shop for new tires, how long can they keep us sitting there?"
+    kind: semantic
+    soft: false
+    note: "Delivery Time clause: the vehicle shall not wait more than two hours unless agreed in advance."
+    expect:
+      outcome: answered
+      sources:
+        - document: sc_tires_statewide_2019.pdf
+          page: 9
+      answer_has_any: ["two hours"]
+      results_in: {tenant: tenant_eval}
+
+  - id: sass-patrol-car-test-drive
+    tenant: tenant_eval
+    question: "Is the garage allowed to take a patrol car out for a test drive?"
+    kind: semantic
+    soft: false
+    note: "Note 3b on page 2: the officer must drive the vehicle; the vendor may never road test a Police/Patrol vehicle."
+    expect:
+      outcome: answered
+      sources:
+        - document: sc_sass_002a.pdf
+          page: 2
+      answer_has_any: ["officer must drive", "road test"]
+      results_in: {tenant: tenant_eval}
+
+  - id: carrier-keep-goods-unpaid
+    tenant: tenant_eval
+    question: "If we fall behind on freight bills, can the trucking company hang on to our shipment?"
+    kind: semantic
+    soft: false
+    note: "Both carriage terms give the carrier a lien on cargo: Safeway section 4 (possessory and general lien), Carver section 9 (carrier's lien)."
+    expect:
+      outcome: answered
+      sources:
+        - document: safeway_trucking_terms.pdf
+          page: 1
+        - document: carver_delivery_terms.pdf
+          page: 1
+      answer_has_any: ["possessory lien", "general lien", "carrier's lien"]
+      results_in: {tenant: tenant_eval}
+
+  - id: carver-hidden-damage-window
+    tenant: tenant_eval
+    question: "We only noticed the goods were damaged after the delivery was unpacked. How quickly do we have to tell Carver?"
+    kind: semantic
+    soft: false
+    note: "Section 12: concealed loss must be reported in writing within 3 business days of delivery."
+    expect:
+      outcome: answered
+      sources:
+        - document: carver_delivery_terms.pdf
+          page: 2
+      answer_has_any: ["within 3 business days of delivery"]
+      results_in: {tenant: tenant_eval}
+
+  - id: safeway-damage-report-deadline
+    tenant: tenant_eval
+    question: "How long after our freight arrives can we still tell Safeway it showed up broken?"
+    kind: semantic
+    soft: false
+    note: "Section 6: written notice of a cargo claim within nine (9) months of the delivery date."
+    expect:
+      outcome: answered
+      sources:
+        - document: safeway_trucking_terms.pdf
+          page: 1
+      answer_has_any: ["nine (9) months"]
+      results_in: {tenant: tenant_eval}
+
+  - id: carver-yearly-total-exposure
+    tenant: tenant_eval
+    question: "What is the most Carver would ever owe us, all claims combined, over a year?"
+    kind: semantic
+    soft: false
+    note: "Section 15 annual aggregate cap: lesser of $100,000 or freight charges paid in any rolling 12-month period."
+    expect:
+      outcome: answered
+      sources:
+        - document: carver_delivery_terms.pdf
+          page: 2
+      answer_has_any: ["ROLLING 12-MONTH", "TOTAL AGGREGATE LIABILITY"]
+      results_in: {tenant: tenant_eval}
+
+  # ---------------------------------------------------------------- unanswerable
+  - id: driver-drug-alcohol-testing
+    tenant: tenant_eval
+    question: "What drug and alcohol testing must the carrier's drivers undergo?"
+    kind: unanswerable
+    soft: false
+    note: "No document covers driver substance testing."
+    absent_terms: ["drug", "alcohol"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_eval}
+
+  - id: warehouse-pallet-storage-fee
+    tenant: tenant_eval
+    question: "What is the monthly warehouse storage fee per pallet?"
+    kind: unanswerable
+    soft: false
+    note: "No warehousing rates in any document (Safeway only mentions third-party equipment storage charges passed to the customer)."
+    absent_terms: ["pallet"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_eval}
+
+  - id: ev-charging-cost
+    tenant: tenant_eval
+    question: "How much does it cost to charge our electric delivery vans at public charging stations?"
+    kind: unanswerable
+    soft: false
+    note: "No electric-vehicle charging terms anywhere (the fuel card contracts list alternative fuels such as CNG, propane and biodiesel, not electricity)."
+    absent_terms: ["charging", "electric vehicle"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_eval}
+
+  - id: anti-idling-emissions-rules
+    tenant: tenant_eval
+    question: "What anti-idling or emissions rules must our trucks follow?"
+    kind: unanswerable
+    soft: false
+    note: "No idling or emissions requirements in any document."
+    absent_terms: ["idling", "emission"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_eval}
+
+  - id: driver-background-checks
+    tenant: tenant_eval
+    question: "Do drivers have to pass a criminal background check before hauling our loads?"
+    kind: unanswerable
+    soft: false
+    note: "No driver screening requirements (Safeway only says hazmat drivers are properly licensed and trained)."
+    absent_terms: ["background check", "criminal"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_eval}
+
+  # ---------------------------------------------------------------- near_miss
+  - id: tires-mileage-warranty
+    tenant: tenant_eval
+    question: "What tread-life mileage warranty comes with tires bought on the statewide tire contract?"
+    kind: near_miss
+    soft: false
+    note: "Close topic present: dealers must make on-the-spot adjustments under the manufacturer's standard warranty (p.8). No mileage or road-hazard warranty terms are stated."
+    absent_terms: ["mileage warranty", "treadwear", "road hazard"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_eval}
+
+  - id: wex-gallon-limit-per-transaction
+    tenant: tenant_eval
+    question: "What is the maximum number of gallons a driver can buy in one transaction with the WEX card?"
+    kind: near_miss
+    soft: false
+    note: "Close topic present: administrators work with WEX to establish card limitations; Fuel Only vs Custom Control cards. No gallon or spending limit figure in either Missouri contract."
+    absent_terms: ["gallons per", "daily limit", "spending limit"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_eval}
+
+  - id: wex-contract-early-termination
+    tenant: tenant_eval
+    question: "How much notice must the State give WEX to terminate the fleet card contract early?"
+    kind: near_miss
+    soft: false
+    note: "Close topics present: contract periods and renewal options (p.1 of both), and cancellation of individual cards. No contract termination clause."
+    absent_terms: ["termination for convenience", "terminate the contract"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_eval}
+
+  - id: carver-umbrella-coverage
+    tenant: tenant_eval
+    question: "How much umbrella or excess liability insurance must Carver carry?"
+    kind: near_miss
+    soft: false
+    note: "Close topic present: section 17 lists auto liability, motor truck cargo, workers' comp and CGL limits. No umbrella/excess layer."
+    absent_terms: ["umbrella", "excess liability"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_eval}
+

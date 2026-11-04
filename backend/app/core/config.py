@@ -4,7 +4,8 @@ Guarantees:
 - With no variables and no `.env`, everything runs without paid keys: a fake LLM and a
   real embedding model that runs locally (no API, no key). Tests use a simulated
   embedder instead (`EMBEDDINGS_PROVIDER=fake`).
-- No silent fallback: a real provider without its key prevents startup (fail fast).
+- No silent fallback: a real provider without its key prevents startup (fail fast), and
+  so does the fake LLM with an embedding model it has no calibrated thresholds for.
 - Keys are `SecretStr`: they never appear in `repr`, logs or `/health`.
 """
 
@@ -14,6 +15,8 @@ from typing import Literal, Self
 
 from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+from app.core.similarity import calibrated_thresholds
 
 # backend/app/core/config.py -> repo root. In Docker this points to "/.env", which does
 # not exist: there the variables come from Compose.
@@ -133,6 +136,15 @@ class Settings(BaseSettings):
             errors.append(
                 f"EMBEDDING_DIM={self.embedding_dim} does not match the schema "
                 f"(vector({SCHEMA_EMBEDDING_DIM})); changing it requires a migration"
+            )
+
+        # The fake LLM picks sentences by cosine similarity, and cosine scales depend on
+        # the embedding model: without measured thresholds for it, refuse to start.
+        if self.llm_provider == "fake" and calibrated_thresholds(self.embedding_model_id) is None:
+            errors.append(
+                f"LLM_PROVIDER=fake has no calibrated similarity thresholds for "
+                f"{self.embedding_model_id}; run scripts/calibrate_extractive.py and add "
+                "them to app/core/similarity.py"
             )
 
         if self.llm_provider == "litellm":

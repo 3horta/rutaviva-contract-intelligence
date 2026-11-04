@@ -63,6 +63,11 @@ def test_tests_use_the_simulated_embedder(make_settings) -> None:
             "LLM_FAST_MODEL=gemini/b requires GEMINI_API_KEY",
         ),
         ({"EMBEDDING_DIM": "1536"}, "does not match the schema"),
+        (
+            # The fake LLM has no calibrated thresholds for Gemini embeddings.
+            {"EMBEDDINGS_PROVIDER": "gemini", "GEMINI_API_KEY": "x"},
+            "no calibrated similarity thresholds for gemini-embedding-001@768",
+        ),
         ({"LLM_PROVIDER": "openai"}, "llm_provider"),
         ({"FAKE_LLM_MODE": "broken"}, "fake_llm_mode"),
         ({"LLM_TIMEOUT_S": "0"}, "llm_timeout_s"),
@@ -99,7 +104,12 @@ def test_fast_model_defaults_to_llm_model(make_settings) -> None:
 
 
 def test_key_is_not_shown_when_printing_settings(make_settings) -> None:
-    s = make_settings(EMBEDDINGS_PROVIDER="gemini", GEMINI_API_KEY="super-secret-key")
+    s = make_settings(
+        LLM_PROVIDER="litellm",
+        LLM_MODEL="gemini/model",
+        EMBEDDINGS_PROVIDER="gemini",
+        GEMINI_API_KEY="super-secret-key",
+    )
 
     assert "super-secret-key" not in repr(s)
     assert "super-secret-key" not in str(s.model_dump())

@@ -1,0 +1,528 @@
+# Calibration question set for the keyless (extractive) answer mode over REAL contracts.
+#
+# Purpose: tune the sentence-similarity threshold that decides between quoting sentences
+# and answering "not enough information". Only the 8 `calibration` documents listed in
+# contracts.yaml are used; the held-out eval set is written from different documents.
+#
+# Kinds:
+#   lexical      answerable, wording close to the clause
+#   semantic     answerable, paraphrased the way a fleet manager would ask
+#   unanswerable topic absent from all 8 documents
+#   near_miss    a close topic IS present, but the specific fact asked is absent
+#
+# Every cited page and every `answer_has_any` string, and the absence of every
+# `absent_terms` string from all pages of the 8 documents, was checked against the
+# pypdf text with verify_questions.py (matching ignores case and whitespace, so absent
+# terms were chosen to avoid accidental matches across word boundaries). Each answering
+# sentence was also re-read to confirm it answers the question.
+#
+# Fair questions, not traps: these are what a procurement user would ask. Removed on
+# review (ADR-011): near-miss items where a near-identical sentence answers a sibling
+# question (an overtime rate next to the hourly rates, DEF next to the diesel price, a
+# biodiesel blend next to the winter blend, a tread depth next to "tread depth and wear
+# pattern", "promptly" as a response time), a question whose documents answer it in
+# contradictory ways (offsetting claims against freight), and one whose answer needs two
+# pages read together (burning less diesel than committed).
+version: 1
+set: calibration
+questions:
+  # ---------------------------------------------------------------- lexical
+  - id: tst-freight-insurance-minimum
+    tenant: tenant_calibration
+    question: "What minimum amount of freight insurance must the carrier maintain under the TST terms and conditions of carriage?"
+    kind: lexical
+    soft: false
+    note: "TST Terms of Carriage, clause 2: freight insurance no less than $200,000."
+    expect:
+      outcome: answered
+      sources:
+        - document: tst_terms_of_carriage.pdf
+          page: 1
+      answer_has_any: ["$200,000"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: tst-concealed-damage-reporting
+    tenant: tenant_calibration
+    question: "Within how many working days must concealed loss or damage be reported to the delivering carrier?"
+    kind: lexical
+    soft: false
+    note: "TST Terms of Carriage, clause 9: concealed loss or damage reported within 15 working days."
+    expect:
+      outcome: answered
+      sources:
+        - document: tst_terms_of_carriage.pdf
+          page: 2
+      answer_has_any: ["15 working days"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: tst-late-delivery-freight-reduction
+    tenant: tenant_calibration
+    question: "By how much are freight charges reduced for each day that delivery is delayed beyond the scheduled delivery date?"
+    kind: lexical
+    soft: false
+    note: "TST Terms of Carriage, clause 6: freight charges reduced by 10% for each day of delay."
+    expect:
+      outcome: answered
+      sources:
+        - document: tst_terms_of_carriage.pdf
+          page: 1
+      answer_has_any: ["10% for each day"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: fedex-dry-run-administrative-fee
+    tenant: tenant_calibration
+    question: "What administrative fee may apply when the customer cancels a shipment twenty-four hours or less before scheduled pickup?"
+    kind: lexical
+    soft: false
+    note: "FedEx Managed Transportation T&C, 'Dry Run Charges': carrier fees plus an administrative fee of up to $100."
+    expect:
+      outcome: answered
+      sources:
+        - document: fedex_brokerage_tc.pdf
+          page: 2
+      answer_has_any: ["up to $100"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: fedex-ltl-liability-per-pound
+    tenant: tenant_calibration
+    question: "What is a less than load (LTL) carrier's liability limit per pound for loss or damage to cargo?"
+    kind: lexical
+    soft: false
+    note: "FedEx T&C, 'Liability of Transporting Carrier(s)': lesser of $10 per pound or invoice value, max $100,000."
+    expect:
+      outcome: answered
+      sources:
+        - document: fedex_brokerage_tc.pdf
+          page: 3
+      answer_has_any: ["$10 per pound"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: stg-undeclared-hazmat-charge
+    tenant: tenant_calibration
+    question: "What administrative charge applies to a shipment of hazardous materials that is not declared as containing hazardous materials?"
+    kind: lexical
+    soft: false
+    note: "STG Drayage Rules, 'Hazardous Materials': $2,000 liquidated damages if undeclared ($500 if declared but not documented)."
+    expect:
+      outcome: answered
+      sources:
+        - document: stg_drayage_rules.pdf
+          page: 9
+      answer_has_any: ["$2,000"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: stg-invoice-due-and-finance-charge
+    tenant: tenant_calibration
+    question: "Within how many days are STG drayage invoices due, and what finance and collection charge is added if they are not paid?"
+    kind: lexical
+    soft: false
+    note: "STG Drayage Rules, 'Payment Terms': due within twenty-one (21) days; 5% finance and collection charge."
+    expect:
+      outcome: answered
+      sources:
+        - document: stg_drayage_rules.pdf
+          page: 5
+      answer_has_any: ["twenty-one (21) days"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: stg-refused-cargo-storage-liability
+    tenant: tenant_calibration
+    question: "What is the carrier's liability limit per trailer or container for cargo in storage when the consignee refuses the cargo?"
+    kind: lexical
+    soft: false
+    note: "STG Drayage Rules, 'Limitation of Liability for Stored Cargo' (2): $5,000 per trailer or container."
+    expect:
+      outcome: answered
+      sources:
+        - document: stg_drayage_rules.pdf
+          page: 17
+      answer_has_any: ["$5,000"]
+      answer_lacks: ["$100,000.00 per trailer"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: maine-gmc-parts-discount
+    tenant: tenant_calibration
+    question: "What percentage discount off the price for parts does O'Connor GMC offer?"
+    kind: lexical
+    soft: false
+    note: "Maine GMC master agreement, Rider A VI 'Percentage Discount off Price for Parts': 'The Provider offer a 35% discount.' (The tire agreement's equivalent sentence says no discount.)"
+    expect:
+      outcome: answered
+      sources:
+        - document: maine_gmc_repair_pm_2025.pdf
+          page: 7
+      answer_has_any: ["35% discount"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: maine-termination-for-cause-notice
+    tenant: tenant_calibration
+    question: "How many calendar days of written notice are required to terminate the Maine repair master agreement for cause, and how long does the defaulting party have to cure?"
+    kind: lexical
+    soft: false
+    note: "Shared Maine template, Rider B 13 'Termination': 30 calendar days' notice, 15 calendar days to cure. Same text in both Maine repair agreements."
+    expect:
+      outcome: answered
+      sources:
+        - document: maine_gmc_repair_pm_2025.pdf
+          page: 12
+        - document: maine_tire_repair_pm_2025.pdf
+          page: 11
+      answer_has_any: ["thirty (30) calendar day", "fifteen (15) calendar days"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: diesel-delivery-within-hours
+    tenant: tenant_calibration
+    question: "Within how many hours of placing the order must bulk diesel deliveries be made?"
+    kind: lexical
+    soft: false
+    note: "Maine Bulk Diesel, Rider A specifications 'Delivery': deliveries within 48 hours of placing the order."
+    expect:
+      outcome: answered
+      sources:
+        - document: maine_bulk_diesel_2023.pdf
+          page: 8
+      answer_has_any: ["within 48 hours"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: diesel-fixed-price-per-gallon
+    tenant: tenant_calibration
+    question: "At what fixed price per gallon were the 500,000 gallons of on-road bulk diesel locked in?"
+    kind: lexical
+    soft: false
+    note: "Maine Bulk Diesel: $2.8100 per gallon, repeated in the commodity line (p.2), the amendment (p.5) and the Dead River Fixed Price Agreement (p.19)."
+    expect:
+      outcome: answered
+      sources:
+        - document: maine_bulk_diesel_2023.pdf
+          page: 2
+        - document: maine_bulk_diesel_2023.pdf
+          page: 5
+        - document: maine_bulk_diesel_2023.pdf
+          page: 19
+      answer_has_any: ["$2.81"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: calhoun-parts-markup-cap
+    tenant: tenant_calibration
+    question: "What is the maximum markup over actual cost allowed on parts supplied by the awarded bidder?"
+    kind: lexical
+    soft: false
+    note: "Calhoun County ITB 8.6 'Parts Markup': actual cost plus a markup not to exceed twenty percent (20%); repeated in Attachment C item 5 (p.20)."
+    expect:
+      outcome: answered
+      sources:
+        - document: calhoun_itb_fleet_maint_2026.pdf
+          page: 8
+        - document: calhoun_itb_fleet_maint_2026.pdf
+          page: 20
+      answer_has_any: ["twenty percent (20%)", "not to exceed 20%"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: md-tsc-approval-limit
+    tenant: tenant_calibration
+    question: "Up to what dollar amount may the Technical Support Center approve vehicle maintenance and repair services without the State agency's approval?"
+    kind: lexical
+    soft: false
+    note: "Maryland Amendment #4, new 3.2.1.4: TSC approves services over $100 and up to $1,000; above $1,000 needs agency written approval."
+    expect:
+      outcome: answered
+      sources:
+        - document: md_maint_repair_amend4.pdf
+          page: 2
+      answer_has_any: ["$1,000"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: fedex-claim-notification-deadline
+    tenant: tenant_calibration
+    question: "Within how many days of delivery must the customer notify FedEx in writing of a pending cargo claim?"
+    kind: lexical
+    soft: false
+    note: "FedEx T&C, 'Claims against Transporting Carrier' (p.5) and 'Claims against Broker' (p.6): written notification within ten (10) days of delivery or scheduled delivery."
+    expect:
+      outcome: answered
+      sources:
+        - document: fedex_brokerage_tc.pdf
+          page: 5
+        - document: fedex_brokerage_tc.pdf
+          page: 6
+      answer_has_any: ["ten (10) days"]
+      results_in: {tenant: tenant_calibration}
+
+  # ---------------------------------------------------------------- semantic
+  - id: calhoun-extra-repairs-without-approval
+    tenant: tenant_calibration
+    question: "If the shop finds something else broken in the middle of a repair, how much extra work can they do before they have to call us?"
+    kind: semantic
+    soft: false
+    note: "Calhoun County ITB 7 'Authorization to Perform Work': additional repairs up to $300 without additional authorization."
+    expect:
+      outcome: answered
+      sources:
+        - document: calhoun_itb_fleet_maint_2026.pdf
+          page: 6
+      answer_has_any: ["$300"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: calhoun-flat-tire-fix-method
+    tenant: tenant_calibration
+    question: "When one of our cars gets a nail in a tire, is the garage allowed to just plug the hole?"
+    kind: semantic
+    soft: false
+    note: "Calhoun County ITB 9 'Tires' item 3: 'Tire plugs are not authorized; patch only.' Repeated in the Attachment C acknowledgements (p.20)."
+    expect:
+      outcome: answered
+      sources:
+        - document: calhoun_itb_fleet_maint_2026.pdf
+          page: 9
+        - document: calhoun_itb_fleet_maint_2026.pdf
+          page: 20
+      answer_has_any: ["patch only"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: tst-storage-charges-start
+    tenant: tenant_calibration
+    question: "If the receiver turns our freight away, how long before the trucking company can start billing us for keeping it?"
+    kind: semantic
+    soft: false
+    note: "TST Terms of Carriage, clause 8: storage charges do not begin until at least 48 hours after the carrier's notification (excluding weekends and holidays)."
+    expect:
+      outcome: answered
+      sources:
+        - document: tst_terms_of_carriage.pdf
+          page: 2
+      answer_has_any: ["48 hours"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: maine-tire-parts-price-break
+    tenant: tenant_calibration
+    question: "Do we get any price break on parts when Maine Commercial Tire works on our trucks?"
+    kind: semantic
+    soft: false
+    note: "Maine Commercial Tire agreement, Rider A VI: 'The Provider does not offer a discount.' (The GMC agreement's sentence in the same template offers 35%.)"
+    expect:
+      outcome: answered
+      sources:
+        - document: maine_tire_repair_pm_2025.pdf
+          page: 7
+      answer_has_any: ["does not offer a discount"]
+      answer_lacks: ["35%"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: diesel-wrong-product-in-tank
+    tenant: tenant_calibration
+    question: "If the supplier's driver fills our tank with the wrong product, who pays for the cleanup and for fixing the trucks?"
+    kind: semantic
+    soft: false
+    note: "Maine Bulk Diesel, 'Contaminated Fuel Delivery': vendor liable for removal and cleanup (p.8) and for all vehicle repairs associated with the delivery (p.9); the clause spans the page break."
+    expect:
+      outcome: answered
+      sources:
+        - document: maine_bulk_diesel_2023.pdf
+          page: 8
+        - document: maine_bulk_diesel_2023.pdf
+          page: 9
+      answer_has_any: ["removal and cleanup", "vehicle repairs"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: md-coupon-odometer-coverage
+    tenant: tenant_calibration
+    question: "Up to what mileage must the maintenance coupon booklet for each state vehicle go?"
+    kind: semantic
+    soft: false
+    note: "Maryland Amendment #4, new 3.2.1.1.1 (p.1) and identical 3.2.1.2.1 (p.2): coupons cover maintenance intervals up to 200,000 miles."
+    expect:
+      outcome: answered
+      sources:
+        - document: md_maint_repair_amend4.pdf
+          page: 1
+        - document: md_maint_repair_amend4.pdf
+          page: 2
+      answer_has_any: ["200,000 miles"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: maine-repair-parts-guarantee
+    tenant: tenant_calibration
+    question: "How long are we covered if a part the shop put in fails after the job is done?"
+    kind: semantic
+    soft: false
+    note: "Shared Maine template, Rider A requirement 16: parts warranted no less than ninety (90) days. Same text in both Maine repair agreements."
+    expect:
+      outcome: answered
+      sources:
+        - document: maine_gmc_repair_pm_2025.pdf
+          page: 6
+        - document: maine_tire_repair_pm_2025.pdf
+          page: 6
+      answer_has_any: ["ninety (90)"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: stg-advance-notice-for-pickup
+    tenant: tenant_calibration
+    question: "By when do we have to tell the drayage company about a container we need moved tomorrow?"
+    kind: semantic
+    soft: false
+    note: "STG Drayage Rules, 'Prenote': notification by 3:00 pm local time the day before pickup or delivery."
+    expect:
+      outcome: answered
+      sources:
+        - document: stg_drayage_rules.pdf
+          page: 8
+      answer_has_any: ["3:00 pm"]
+      results_in: {tenant: tenant_calibration}
+
+  # ----------------------------------------------------------- unanswerable
+  - id: aircraft-charter-services
+    tenant: tenant_calibration
+    question: "What rates apply when we charter an aircraft for urgent air freight?"
+    kind: unanswerable
+    soft: false
+    note: "No document covers air transport; all carriage documents are truck, drayage or rail."
+    absent_terms: ["aircraft", "air freight", "air cargo"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: electronic-logging-devices
+    tenant: tenant_calibration
+    question: "What electronic logging device and hours-of-service requirements apply to the drivers?"
+    kind: unanswerable
+    soft: false
+    note: "No document mentions ELDs or driver hours-of-service rules."
+    absent_terms: ["electronic logging", "hours of service"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: telematics-gps-tracking
+    tenant: tenant_calibration
+    question: "Does the supplier have to provide GPS telematics so we can track trucks in real time?"
+    kind: unanswerable
+    soft: false
+    note: "No document mentions GPS, telematics or real-time tracking."
+    absent_terms: ["telematics", "GPS"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: iso-9001-certification
+    tenant: tenant_calibration
+    question: "Must suppliers hold ISO 9001 quality management certification?"
+    kind: unanswerable
+    soft: false
+    note: "No ISO certification requirement anywhere (Maine requires ASE/inspection certifications, which is a different topic)."
+    absent_terms: ["ISO 9001", "quality management"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: forklift-leasing
+    tenant: tenant_calibration
+    question: "What are the monthly lease terms for warehouse forklifts?"
+    kind: unanswerable
+    soft: false
+    note: "No document covers forklifts or equipment leasing."
+    absent_terms: ["forklift"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: driver-drug-testing
+    tenant: tenant_calibration
+    question: "Is the contractor required to drug and alcohol test its drivers and technicians?"
+    kind: unanswerable
+    soft: false
+    note: "No drug or alcohol testing clause in any document (Calhoun has E-Verify, Maine has EEO; neither is testing)."
+    absent_terms: ["drug", "alcohol"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: snow-plowing-services
+    tenant: tenant_calibration
+    question: "What does the supplier charge for snow plowing at our vehicle yards?"
+    kind: unanswerable
+    soft: false
+    note: "No document covers snow removal or plowing."
+    absent_terms: ["snow", "plow"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: volume-rebates
+    tenant: tenant_calibration
+    question: "Do we earn a volume rebate or loyalty credit once our yearly spend passes a certain amount?"
+    kind: unanswerable
+    soft: false
+    note: "No rebate, loyalty or volume discount programme in any document."
+    absent_terms: ["rebate", "loyalty", "volume discount"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  # -------------------------------------------------------------- near_miss
+  - id: diesel-gasoline-price
+    tenant: tenant_calibration
+    question: "What price per gallon does the fuel supplier charge for unleaded gasoline deliveries?"
+    kind: near_miss
+    soft: false
+    note: "Present: bulk ultra-low sulfur diesel pricing and delivery terms. Absent: gasoline/unleaded in every document."
+    absent_terms: ["gasoline", "unleaded"]
+    expect:
+      outcome: insufficient_evidence
+      answer_lacks: ["$2.8100"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: diesel-minimum-delivery-quantity
+    tenant: tenant_calibration
+    question: "What is the minimum number of gallons per bulk diesel delivery order?"
+    kind: near_miss
+    soft: false
+    note: "Present: delivery within 48 hours, delivery hours, 500,000 committed gallons in total. Absent: a minimum quantity per delivery or order."
+    absent_terms: ["minimum delivery", "minimum order"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: fedex-early-payment-discount
+    tenant: tenant_calibration
+    question: "Is there a discount for paying the freight broker's invoices early?"
+    kind: near_miss
+    soft: false
+    note: "Present: FedEx payment within 15 days and 12% annual interest on late amounts. Absent: any early or prompt payment discount in any document."
+    absent_terms: ["early payment", "prompt payment"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: calhoun-umbrella-insurance
+    tenant: tenant_calibration
+    question: "What umbrella or excess liability insurance limit must the fleet maintenance contractor carry?"
+    kind: near_miss
+    soft: false
+    note: "Present: Calhoun minimum limits (CGL $1,000,000, auto $1,000,000, garagekeepers $500,000) and Maine $2,000,000 aggregate. Absent: umbrella / excess liability coverage."
+    absent_terms: ["umbrella", "excess liability"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: calhoun-electric-vehicles-in-fleet
+    tenant: tenant_calibration
+    question: "How many electric or hybrid vehicles are in the county fleet?"
+    kind: near_miss
+    soft: false
+    note: "Present: Calhoun Attachment A vehicle inventory and 'approximately 180 vehicles'. Absent: any electric or hybrid vehicle."
+    absent_terms: ["electric vehicle", "hybrid"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}
+
+  - id: stg-maximum-gross-weight
+    tenant: tenant_calibration
+    question: "What is the maximum gross weight in pounds allowed for a loaded container under the drayage tariff?"
+    kind: near_miss
+    soft: false
+    note: "Present: STG 'Shipment Weights and Sizes' (overweight handling, customer weight info, 96 in / 45 ft oversize). Absent: a numeric gross weight limit."
+    absent_terms: ["80,000", "maximum gross weight"]
+    expect:
+      outcome: insufficient_evidence
+      results_in: {tenant: tenant_calibration}

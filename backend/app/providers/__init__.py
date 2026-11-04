@@ -14,8 +14,18 @@ def get_embeddings(settings: Settings) -> EmbeddingsProvider:
         return _local_embeddings(
             settings.local_embedding_model, settings.embedding_dim, settings.embedding_batch_size
         )
-    # Real paid provider: imported lazily so other modes never load its SDK.
-    raise NotImplementedError("gemini embeddings are not wired yet")
+    # Real paid provider: imported lazily so other modes never load LiteLLM.
+    # Changing provider or model requires reindexing (documents store `model_id`).
+    from app.providers.embeddings.gemini import GeminiEmbeddings
+
+    # Config validation guarantees the key when EMBEDDINGS_PROVIDER=gemini.
+    assert settings.gemini_api_key is not None
+    return GeminiEmbeddings(
+        settings.gemini_embedding_model,
+        settings.gemini_api_key.get_secret_value(),
+        settings.embedding_dim,
+        batch_size=settings.embedding_batch_size,
+    )
 
 
 # Loading the model takes seconds and hundreds of MB: exactly once per process. A lock,

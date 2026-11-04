@@ -32,6 +32,11 @@ RETRIEVAL_K = "retrieval.k"
 RETRIEVAL_VEC_HITS = "retrieval.vec_hits"
 RETRIEVAL_FTS_HITS = "retrieval.fts_hits"
 RETRIEVAL_RESULTS = "retrieval.results"
+# Relevance judge (real LLM only): chunks it received, chunks kept, and whether it failed
+# (failure keeps every chunk).
+JUDGE_CANDIDATES = "retrieval.judge.candidates"
+JUDGE_KEPT = "retrieval.judge.kept"
+JUDGE_FAILED = "retrieval.judge.failed"
 
 # GenAI semantic conventions where they exist; `llm.*` for what they do not cover.
 GEN_AI_REQUEST_MODEL = "gen_ai.request.model"
@@ -41,6 +46,7 @@ LLM_TOKENS_ESTIMATED = "llm.tokens.estimated"
 LLM_LATENCY_MS = "llm.latency_ms"
 LLM_RETRIES = "llm.retries"
 LLM_VALIDATION_ERROR = "llm.validation_error"
+LLM_CONTENT_FILTERED = "llm.content_filtered"
 
 ANSWER_INSUFFICIENT = "answer.insufficient"
 ANSWER_CONFIDENCE = "answer.confidence"

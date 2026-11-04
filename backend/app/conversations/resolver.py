@@ -5,7 +5,7 @@ own; "What is the penalty for late tire delivery? and what is the cap?" does. So
 retrieval the question is resolved against the last turns of the conversation:
 
 - `RuleBasedResolver`: deterministic, used with the fake LLM (keyless mode).
-- `LLMQuestionResolver`: asks a real model to rewrite the question (later milestone).
+- `LLMQuestionResolver`: asks a real model (the fast one) to rewrite the question.
 
 The conversation must never make a query fail: any problem resolving the question means
 the question is used exactly as typed.
@@ -14,9 +14,11 @@ the question is used exactly as typed.
 import logging
 import re
 from dataclasses import dataclass
-from typing import Any, Protocol
+from typing import Protocol
 
 from app.core.config import Settings
+from app.providers.llm import get_json_client
+from app.providers.llm.base import JSONCompletionClient
 
 logger = logging.getLogger(__name__)
 
@@ -113,12 +115,6 @@ class RuleBasedResolver:
 # --- Real model ---------------------------------------------------------------------------
 
 
-class JSONCompletionClient(Protocol):
-    """A chat model that returns a JSON object. The LiteLLM adapter will implement it."""
-
-    def complete_json(self, system: str, user: str, *, timeout_s: float) -> dict[str, Any]: ...
-
-
 # Answers are only there to tell what "it" or "the cap" refers to: a short excerpt is enough.
 MAX_ANSWER_CHARS = 400
 RESOLVER_TIMEOUT_S = 10.0
@@ -177,8 +173,9 @@ class LLMQuestionResolver:
 
 
 def get_resolver(settings: Settings) -> QuestionResolver:
-    """The resolver that matches the active LLM provider."""
-    if settings.llm_provider == "fake":
+    """The resolver that matches the active LLM provider: the rule in keyless mode, the
+    fast model (capability `resolve`) with a real LLM."""
+    client = get_json_client(settings, "resolve")
+    if client is None:
         return RuleBasedResolver()
-    # Needs the LiteLLM JSON client, which arrives with the real LLM provider.
-    raise NotImplementedError("the LLM question resolver needs the litellm client")
+    return LLMQuestionResolver(client)

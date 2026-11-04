@@ -7,7 +7,7 @@ document content clearly delimited as data), the fake one reads it directly.
 
 import uuid
 from dataclasses import dataclass, field
-from typing import Protocol
+from typing import Any, Protocol
 
 
 @dataclass(frozen=True)
@@ -47,4 +47,14 @@ class LLMProvider(Protocol):
     def generate(self, prompt: PromptInput, *, timeout_s: float) -> LLMResult:
         """Raise `TransientProviderError` on timeouts/429/5xx and
         `PermanentProviderError` on other failures. Never return partial text."""
+        ...
+
+
+class JSONCompletionClient(Protocol):
+    """A chat model that returns a JSON object, for the small jobs around the answer:
+    resolving follow-ups and judging relevance (`LiteLLMJSONClient`)."""
+
+    def complete_json(self, system: str, user: str, *, timeout_s: float) -> dict[str, Any]:
+        """Raise a `ProviderError` on provider failures or a reply that is not a JSON
+        object. Callers treat any failure as "skip this step"."""
         ...

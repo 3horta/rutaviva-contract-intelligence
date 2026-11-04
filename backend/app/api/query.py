@@ -31,6 +31,7 @@ from app.core.errors import AppError
 from app.db.session import tenant_transaction
 from app.providers import get_embeddings
 from app.providers.llm import get_llm
+from app.retrieval.judge import get_judge
 from app.schemas.conversations import PHASE_LABELS, ConversationEvent, PhaseEvent
 from app.schemas.query import QueryRequest, QueryResponse
 
@@ -73,6 +74,7 @@ def query(
         embeddings=embeddings,
         llm=get_llm(settings, embeddings),
         settings=settings,
+        judge=get_judge(settings),
     )
 
 
@@ -192,6 +194,7 @@ def _answer_in_background(
                 llm=get_llm(settings, embeddings),
                 settings=settings,
                 on_phase=on_phase,
+                judge=get_judge(settings),
             )
         # Sent only after the commit: a `result` always means the turn is saved.
         events.put(sse("result", response.model_dump_json()))

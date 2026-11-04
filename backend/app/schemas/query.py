@@ -76,7 +76,8 @@ InsufficientReason = Literal["no_results", "all_flagged", "llm_declared", "valid
 
 
 class RetrievedChunkOut(BaseModel):
-    """A chunk the answer was generated from. Ids, page and score only: never content."""
+    """A chunk the answer was generated from (after the relevance judge, if any). Ids,
+    page and score only: never content."""
 
     document_id: uuid.UUID
     document_filename: str
@@ -106,6 +107,11 @@ class AnswerDetails(BaseModel):
     # context; null when the question was used as typed.
     standalone_question: str | None = None
     uses_context: bool = False
+    # Relevance judge (real LLM only): True when a model filtered the retrieved chunks,
+    # and then how many chunks retrieval found before it (`retrieved` lists the ones
+    # kept). False/null in keyless mode and when the judge failed or kept nothing.
+    judged: bool = False
+    judge_candidates: int | None = None
 
 
 class QueryResponse(BaseModel):

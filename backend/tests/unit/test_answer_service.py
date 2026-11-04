@@ -11,6 +11,7 @@ from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanE
 from app.core import tracing
 from app.core.config import Settings
 from app.core.errors import (
+    ContentFilteredError,
     GatewayTimeout,
     PermanentProviderError,
     ProviderTimeoutError,
@@ -21,6 +22,7 @@ from app.generation import service
 from app.providers.embeddings.fake import FakeEmbeddings
 from app.providers.llm.base import LLMResult, PromptInput
 from app.retrieval.hybrid import RetrievedChunk
+from app.retrieval.judge import JudgeOutcome
 from app.schemas.query import INSUFFICIENT_EVIDENCE_MESSAGE
 
 TENANT = uuid.uuid4()
@@ -385,3 +387,70 @@ def test_both_warnings_together(retrieved) -> None:
     retrieved.extend([SLA_CHUNK, INJECTED])
     response = _ask(ScriptedLLM(_cites_both()))
     assert response.warnings == ["prompt_injection", "sources_disagree"]
+
+
+# --- Content filter ----------------------------------------------------------------------
+
+
+def test_content_filter_is_insufficient_with_a_warning_and_not_retried(retrieved, sleeps) -> None:
+    llm = ScriptedLLM(ContentFilteredError("blocked"), _valid())
+    response = _ask(llm, max_retries=2)
+    _assert_insufficient(response)
+    assert response.warnings == [service.CONTENT_FILTERED_WARNING] == ["content_filtered"]
+    assert response.details.insufficient_reason == "llm_declared"
+    assert response.details.attempts == 1
+    assert len(llm.prompts) == 1  # the same input would be blocked again
+    assert sleeps == []
+
+
+def test_content_filter_after_an_invalid_attempt_keeps_the_tokens(retrieved) -> None:
+    outcome, _ = _ask_with_phases(ScriptedLLM("not json", ContentFilteredError("blocked")))
+    assert outcome.response.warnings == ["content_filtered"]
+    assert outcome.response.details.attempts == 2
+    assert (outcome.tokens_in, outcome.tokens_out) == (10, 5)  # only the first one answered
+
+
+# --- Relevance judge ----------------------------------------------------------------------
+
+
+class KeepFirst:
+    """A judge double that keeps only the first chunk (and records what it saw)."""
+
+    def __init__(self) -> None:
+        self.seen: list[RetrievedChunk] = []
+
+    def judge(self, question: str, chunks: list[RetrievedChunk]) -> JudgeOutcome:
+        self.seen = list(chunks)
+        return JudgeOutcome(chunks=chunks[:1], judged=True)
+
+
+def _ask_with_judge(llm: ScriptedLLM, judge) -> service.AnswerOutcome:
+    return service.answer_with_usage(
+        "What is the penalty for late tire delivery?",
+        tenant_id=TENANT,
+        session=None,
+        embeddings=FakeEmbeddings(768),
+        llm=llm,
+        settings=Settings(_env_file=None),
+        judge=judge,
+    )
+
+
+def test_the_llm_only_receives_the_chunks_the_judge_kept(retrieved) -> None:
+    other = RetrievedChunk(**{**CHUNK.__dict__, "chunk_id": uuid.uuid4()})
+    retrieved.append(other)
+    judge, llm = KeepFirst(), ScriptedLLM(_valid())
+
+    details = _ask_with_judge(llm, judge).response.details
+
+    assert judge.seen == [CHUNK, other]
+    assert [c.chunk_id for c in llm.prompts[0].chunks] == [CHUNK.chunk_id]
+    assert [item.chunk_id for item in details.retrieved] == [CHUNK.chunk_id]
+    assert details.judged is True
+    assert details.judge_candidates == 2
+
+
+def test_without_a_judge_the_details_say_so(retrieved) -> None:
+    details = _ask_with_judge(ScriptedLLM(_valid()), None).response.details
+    assert details.judged is False
+    assert details.judge_candidates is None

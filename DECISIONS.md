@@ -17,6 +17,7 @@ are collected at the end once the related milestones are done.
 | [ADR-008](#adr-008--text-extraction-pdfplumber-by-default-docling-optional) | Text extraction: pdfplumber by default, Docling optional | Accepted |
 | [ADR-009](#adr-009--cpu-inference-load-models-once-bound-the-threads) | CPU inference: load models once, bound the threads | Accepted |
 | [ADR-010](#adr-010--chat-backend-streamed-phases-persisted-turns-resolved-follow-ups) | Chat backend: streamed phases, persisted turns, resolved follow-ups | Accepted |
+| [ADR-012](#adr-012--interchangeable-providers-keyless-by-default-litellm-with-a-key) | Interchangeable providers: keyless by default, LiteLLM with a key | Accepted |
 | [ADR-013](#adr-013--untrusted-content-flag-exclude-and-warn-disagreeing-sources-degrade-confidence) | Untrusted content: flag, exclude and warn; disagreeing sources degrade confidence | Accepted |
 | [ADR-014](#adr-014--quality-by-behaviour-an-evaluation-harness-over-a-small-question-set) | Quality by behaviour: an evaluation harness over a small question set | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
@@ -171,6 +172,24 @@ are collected at the end once the related milestones are done.
   - Answering follow-ups without context: "and the cap?" alone retrieves noise.
   - A separate query-log table: the assistant message carries the metadata, and the trace has the detail.
 - **Verified by:** `tests/integration/test_conversations_api.py`: event order, error event with nothing persisted, errors before the stream, persistence, retry, follow-up retrieval, and 404 for another tenant's conversation everywhere. Also `tests/unit/test_resolver.py`.
+
+## ADR-012 · Interchangeable providers: keyless by default, LiteLLM with a key
+
+- **Context:** the keyless setup (fake LLM, local embeddings) must be swappable for a real LLM by configuration only, with no code path that only works in one of them.
+- **Decision:**
+  - **Adapters through LiteLLM** (`providers/llm/litellm_provider.py`, `providers/embeddings/gemini.py`), imported only when configured: keyless mode never imports LiteLLM (tested in a fresh process). `litellm==1.106.6` moved from the spike group to the main dependencies.
+  - **Router by capability** (`providers/llm/router.py`): `answer` → `LLM_MODEL` (quality); `resolve` (follow-ups) and `judge` (relevance) → `LLM_FAST_MODEL`, which defaults to `LLM_MODEL`. Both need the `gemini/` prefix and `GEMINI_API_KEY`, or startup fails.
+  - **Relevance judge, only with a real LLM** (`retrieval/judge.py`): between retrieval and drafting, the fast model gets the question and the candidate chunks (delimited as data, clipped) and returns the ids that are relevant; the kept ones stay in retrieval order. On failure, timeout, garbage or an empty selection, every chunk is kept (`retrieval.judge_failed` / `retrieval.judge_kept_all`): the judge can narrow the context, never empty it or fail a query. In keyless mode there is no judge: the extractive fake LLM already ranks sentences by similarity, and a rule would be a weaker copy of retrieval. `details.judged` / `details.judge_candidates` say whether it ran.
+  - **Error mapping** (`providers/litellm_support.py`): timeout → `ProviderTimeoutError`; 429, 5xx, connection → `TransientProviderError` with `Retry-After` when sent; other 4xx → `PermanentProviderError`. Provider messages are dropped (they can echo the request). LiteLLM's own retries are off: the answer service and the worker decide.
+  - **Content filter** (`ContentFilteredError`, from LiteLLM's `ContentPolicyViolationError` or finish reason `content_filter`): an outcome, not an outage. The answer is "insufficient evidence" with the warning `content_filtered`, never retried and never a 503.
+  - **No secrets or content in logs:** LiteLLM's debug info, verbose and message logging are off and its loggers stay at WARNING; prompts and answers are never logged.
+  - **Gemini embeddings:** `RETRIEVAL_DOCUMENT` for chunks and `RETRIEVAL_QUERY` for questions, 768 dimensions, every vector L2-normalised (Gemini's truncated vectors are not unit length), batches of `EMBEDDING_BATCH_SIZE` (at most 100). Gemini reports no token usage for embeddings, so tokens are estimated and flagged.
+- **Switching to Gemini:** `LLM_PROVIDER=litellm`, `LLM_MODEL=gemini/<model>`, optionally `LLM_FAST_MODEL=gemini/<cheaper model>`, `GEMINI_API_KEY=…`; for embeddings also `EMBEDDINGS_PROVIDER=gemini`. Changing the embedding model requires reindexing: documents store their `embedding_model` and search only compares vectors of the same model.
+- **Rejected:**
+  - A judge in keyless mode: no model to judge with, and the identity is honest.
+  - Dropping everything when the judge keeps nothing: the drafting model, which sees the evidence, is the one that declares "insufficient evidence".
+  - Retrying content-filtered answers: the same input is blocked again.
+- **Verified by:** `tests/unit/test_litellm_provider.py`, `test_gemini_embeddings.py`, `test_judge.py`, `test_llm_router.py`, `test_answer_service.py` (content filter, judge), `test_config.py`, `test_health.py`, against a scripted `litellm` module (no network). The mapping was also checked once against LiteLLM's real exception classes. `tests/contract/test_provider_contract.py` runs the same contract on the keyless and the real providers; the real ones are marked `live` and skipped without `GEMINI_API_KEY` in the environment.
 
 ## ADR-013 · Untrusted content: flag, exclude and warn; disagreeing sources degrade confidence
 

@@ -1,4 +1,5 @@
-"""Embeddings port. Implementations: `fake` (deterministic, default) and `gemini`."""
+"""Embeddings port. Implementations: `local` (default at runtime), `fake` (tests) and
+`gemini` (optional, with a key)."""
 
 from collections.abc import Sequence
 from typing import Protocol

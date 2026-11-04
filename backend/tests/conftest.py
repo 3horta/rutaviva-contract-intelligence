@@ -1,3 +1,4 @@
+import sys
 from collections.abc import Callable
 
 import pytest
@@ -31,3 +32,14 @@ def make_settings(monkeypatch: pytest.MonkeyPatch) -> Callable[..., Settings]:
         return Settings(_env_file=None)
 
     return _make
+
+
+@pytest.fixture
+def fake_litellm(monkeypatch: pytest.MonkeyPatch):
+    """Replace the `litellm` module with a scripted stand-in (tests/fake_litellm.py).
+    The adapters import it lazily, so they pick this one up."""
+    from tests.fake_litellm import FakeLiteLLM
+
+    module = FakeLiteLLM()
+    monkeypatch.setitem(sys.modules, "litellm", module)
+    return module

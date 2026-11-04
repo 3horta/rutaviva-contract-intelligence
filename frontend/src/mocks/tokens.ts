@@ -3,8 +3,8 @@
  * its JWTs (`make token tenant=...`); the mock backend reads `tenant_id`.
  */
 export const DEMO_TENANTS = [
-  { tenant_id: "tenant_a", tenant_name: "Rutaviva Logistics (Laredo)" },
-  { tenant_id: "tenant_b", tenant_name: "Rutaviva Cross-Border (Nuevo Laredo)" },
+  { tenant_id: "tenant_a", tenant_name: "Fleet Procurement" },
+  { tenant_id: "tenant_b", tenant_name: "Freight & Risk Procurement" },
 ] as const;
 
 const base64Url = (value: object) =>

@@ -29,7 +29,7 @@ describe("signing in", () => {
     expect(await screen.findByRole("heading", { name: "Sign in" })).toBeInTheDocument();
     expect(screen.getByText(DEMO_NOTICE)).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Sign in as Rutaviva Logistics (Laredo)" }));
+    fireEvent.click(screen.getByRole("button", { name: "Sign in as Fleet Procurement" }));
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
     expect(await screen.findByTitle(DEMO_NOTICE)).toHaveTextContent("Demo mode");
 
@@ -37,15 +37,15 @@ describe("signing in", () => {
     const dialog = screen.getByRole("dialog", { hidden: true });
     fireEvent.click(
       await within(dialog).findByRole("button", {
-        name: "Sign in as Rutaviva Cross-Border (Nuevo Laredo)",
+        name: "Sign in as Freight & Risk Procurement",
         hidden: true,
       }),
     );
     const tenant = screen.getByLabelText("Tenant");
     await waitFor(() => expect(tenant).toHaveValue("tenant_b"));
     expect(within(tenant).getAllByRole("option").map((o) => o.textContent)).toEqual([
-      "Rutaviva Logistics (Laredo)",
-      "Rutaviva Cross-Border (Nuevo Laredo)",
+      "Fleet Procurement",
+      "Freight & Risk Procurement",
     ]);
   });
 
@@ -91,7 +91,7 @@ describe("signing in", () => {
     renderApp({ fetch: expiredUntilSignIn });
     expect(await screen.findByText("Token invalid or expired")).toBeInTheDocument();
 
-    fireEvent.click(await screen.findByRole("button", { name: "Sign in as Rutaviva Logistics (Laredo)" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Sign in as Fleet Procurement" }));
 
     expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
   });

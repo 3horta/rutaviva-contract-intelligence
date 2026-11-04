@@ -7,8 +7,9 @@ to import this module.
 Choices:
 - `do_ocr=False`: OCR is out of scope. A scan has no text layer, so it ends
   `empty_pdf` instead of being slowly and unreliably recognised.
-- Table structure on: contracts keep rates and penalties in tables, and the structure
-  model returns them as rows instead of a jumble of cells.
+- Table structure OFF: the table-structure model is the slowest stage on CPU (a 3-page
+  contract took minutes). Tables are still extracted, as text in reading order, which
+  keeps rates and penalties searchable and citable; only the cell grid is lost.
 - Coordinates are converted to the **top-left** origin (PDF points), the convention of
   `app.ingestion.types` and of the PDF viewer.
 """
@@ -73,7 +74,7 @@ class DoclingExtractor:
             options = PdfPipelineOptions(
                 artifacts_path=self._artifacts_path,
                 do_ocr=False,
-                do_table_structure=True,
+                do_table_structure=False,
             )
             self._converter = DocumentConverter(
                 format_options={InputFormat.PDF: PdfFormatOption(pipeline_options=options)}

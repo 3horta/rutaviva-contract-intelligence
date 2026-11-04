@@ -214,3 +214,70 @@ def test_confidence_never_exceeds_the_llm_confidence(retrieved) -> None:
     # Top chunk found by both branches (signal "high"), but the LLM said "medium".
     assert _ask(ScriptedLLM(_valid("medium"))).confidence == "medium"
     assert _ask(ScriptedLLM(_valid("high"))).confidence == "high"
+
+
+# --- Phases, details and usage ----------------------------------------------------------
+
+
+def _ask_with_phases(llm: ScriptedLLM, max_retries: int = 2):
+    phases: list[str] = []
+    outcome = service.answer_with_usage(
+        "What is the penalty for late tire delivery?",
+        tenant_id=TENANT,
+        session=None,
+        embeddings=FakeEmbeddings(768),
+        llm=llm,
+        settings=Settings(_env_file=None, llm_max_retries=max_retries),
+        on_phase=phases.append,
+    )
+    return outcome, phases
+
+
+def test_phases_in_order_for_each_attempt(retrieved) -> None:
+    _, phases = _ask_with_phases(ScriptedLLM("not json", _valid()))
+    assert phases == ["searching", "drafting", "validating", "drafting", "validating"]
+
+
+def test_no_results_only_searches(retrieved) -> None:
+    retrieved.clear()
+    outcome, phases = _ask_with_phases(ScriptedLLM())
+    assert phases == ["searching"]
+    details = outcome.response.details
+    assert details.insufficient_reason == "no_results"
+    assert details.attempts == 0
+    assert details.retrieved == []
+
+
+def test_timeout_drafts_again_without_validating(retrieved) -> None:
+    _, phases = _ask_with_phases(ScriptedLLM(ProviderTimeoutError("slow"), _valid()))
+    assert phases == ["searching", "drafting", "drafting", "validating"]
+
+
+def test_details_describe_the_retrieval_without_content(retrieved) -> None:
+    retrieved.append(
+        RetrievedChunk(**{**CHUNK.__dict__, "chunk_id": uuid.uuid4(), "vec_rank": None})
+    )
+    outcome, _ = _ask_with_phases(ScriptedLLM("not json", _valid()))
+    details = outcome.response.details
+    assert [item.found_by for item in details.retrieved] == ["both", "full_text"]
+    assert details.retrieved[0].chunk_id == CHUNK.chunk_id
+    assert details.retrieved[0].document_filename == CHUNK.filename
+    assert (details.vector_hits, details.full_text_hits) == (1, 2)
+    assert details.attempts == 2
+    assert details.insufficient_reason is None
+    assert details.llm_model == "scripted"
+    assert details.latency_ms >= 0
+    assert CHUNK.content not in details.model_dump_json()
+    # Both attempts are paid for.
+    assert (outcome.tokens_in, outcome.tokens_out) == (20, 10)
+
+
+def test_insufficient_reasons_in_details(retrieved) -> None:
+    declared = json.dumps(
+        {"answer": "", "citations": [], "confidence": "low", "insufficient_evidence": True}
+    )
+    outcome, _ = _ask_with_phases(ScriptedLLM(declared))
+    assert outcome.response.details.insufficient_reason == "llm_declared"
+    outcome, _ = _ask_with_phases(ScriptedLLM("no", "no"), max_retries=1)
+    assert outcome.response.details.insufficient_reason == "validation_failed"
+    assert outcome.response.details.attempts == 2

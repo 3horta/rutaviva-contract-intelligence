@@ -48,14 +48,23 @@ export function useOpenPdf(documentId: string) {
     }
   }, [blobUrl]);
 
-  const open = useCallback(
-    () =>
-      run((url) => {
-        const tab = window.open(url, "_blank");
-        setBlockedUrl(tab ? null : url);
-      }),
-    [run],
-  );
+  const open = useCallback(async () => {
+    // Browsers (Safari above all) only allow a new tab during the click itself, and the
+    // file has to be fetched first: open an empty tab now and point it at the file later.
+    const tab = window.open("", "_blank");
+    setBlockedUrl(null);
+    let shown = false;
+    await run((url) => {
+      if (tab && !tab.closed) {
+        tab.location.href = url;
+        shown = true;
+      } else {
+        setBlockedUrl(url);
+      }
+    });
+    // The fetch failed: do not leave an empty tab behind.
+    if (tab && !shown && !tab.closed) tab.close();
+  }, [run]);
 
   /** Save the file under its original name (a temporary link with `download`). */
   const download = useCallback(

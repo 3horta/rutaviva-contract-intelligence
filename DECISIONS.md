@@ -17,6 +17,8 @@ are collected at the end once the related milestones are done.
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
+| [ADR-F04](#adr-f04--a-strict-content-security-policy-for-the-web-app) | A strict Content-Security-Policy for the web app | Accepted |
+| [ADR-F05](#adr-f05--frontend-types-generated-from-a-committed-openapi-document) | Frontend types generated from a committed OpenAPI document | Accepted |
 
 ---
 
@@ -139,3 +141,34 @@ are collected at the end once the related milestones are done.
 
 - **Decision:** two `errorElement`s. One on a pathless route that wraps every page, so a page that throws shows `RouteErrorPage` inside the shell and the sidebar keeps working. One on the root, for when the shell itself fails. A `404` route response reads "Page not found"; anything else reads "Something went wrong", with "Back to the dashboard" and "Reload". The error goes to the console only in development; users never see a stack trace.
 - The routes live in `src/routes.tsx`, shared by the browser router and the tests' memory router.
+
+## ADR-F04 · A strict Content-Security-Policy for the web app
+
+- **Decision:** nginx sends, on every app page (`location /`): `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`, plus `Permissions-Policy: camera=(), microphone=(), geolocation=()`. There is no `'unsafe-inline'` and no `'unsafe-eval'`.
+- **The inline theme script** (it sets the theme before the first paint, so dark mode never flashes light) moved to `public/theme-init.js`, a blocking `<script src>` served from `'self'`. A sha256 hash would also work, but it breaks silently every time someone edits the script. A file has no such trap.
+- **Relaxations, each one needed:**
+  - `img-src data: blob:`: PDF.js paints page images from data and blob URLs.
+  - `worker-src blob:`: PDF.js may start its worker from a blob URL. The worker file itself is same-origin (`/assets/pdf.worker…mjs`).
+- **Why nothing else is needed:**
+  - React sets `style` through the CSSOM (`element.style.x = …`), which `style-src 'self'` allows. Only `style="…"` written in HTML markup and `<style>` elements are blocked, and the build emits neither.
+  - PDF.js probes for `eval` (`new Function("")`) only when `isEvalSupported` is on. The viewer turns it off.
+  - The headers are added in `location /` because nginx's `add_header` in a location replaces the server-level ones. The JSON API responses do not need a CSP.
+- **Verified by:**
+  - `curl -I` on the built image (`docker build -f frontend/Dockerfile`, run on the Compose network) shows both headers.
+  - The built `index.html` has no inline `<script>` or `<style>`.
+  - Headless Chrome loads the pages with no CSP violations in the console.
+  - A full click-through in a scripted browser (viewer, chat stream) was not possible here: the browser container could not reach the npm registry. That check is listed as pending.
+
+## ADR-F05 · Frontend types generated from a committed OpenAPI document
+
+- **Context:** the frontend types were written by hand, so a backend change could only show up at runtime.
+- **Decision:**
+  - The API's OpenAPI document is committed as `frontend/openapi.json`.
+  - `npm run gen:types` (openapi-typescript 7.8.0) turns it into `src/api/schema.d.ts`.
+  - `src/api/types.ts` keeps the names the app uses and derives them from that schema (`DocumentOut = components["schemas"]["DocumentOut"]`, …). A contract change therefore surfaces as type errors where it matters.
+  - Still written by hand: what OpenAPI cannot describe (the SSE events, Problem Details) and one refinement (the bbox is a 4-tuple, the schema says `number[]`).
+- **Why a committed file and not the live `/openapi.json`:**
+  - CI and fresh clones need no running backend, database or ML stack.
+  - Every contract change shows up as a reviewable diff in the PR.
+- **Regenerating:** with the API running, `curl -s http://localhost:8000/openapi.json | python3 -m json.tool --indent 2 > frontend/openapi.json`, then `npm run gen:types` in `frontend/`. Without a running API, the same JSON comes from `create_app().openapi()` in the backend environment (it needs `JWT_SECRET` set).
+- **CI:** the frontend job re-runs `gen:types` and fails if `schema.d.ts` differs from what the committed `openapi.json` produces. It does not check `openapi.json` against the backend code: that needs the backend's Python environment, which is the backend job's (out of this change's scope). That check is listed as debt.

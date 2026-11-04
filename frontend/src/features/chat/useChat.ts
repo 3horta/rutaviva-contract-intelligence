@@ -50,7 +50,7 @@ function withTurn(
     confidence: result.confidence,
     citations: result.citations,
     warnings: result.warnings,
-    details: result.details,
+    details: result.details ?? null,
     created_at: now,
   };
   return { ...detail, updated_at: now, messages: [...kept, asked, answered] };
@@ -121,7 +121,7 @@ export function useChat(conversationId: string | undefined) {
 
     try {
       const result = await streamQuery(
-        { question, conversation_id: id ?? undefined, retry: retry || undefined },
+        { question, conversation_id: id ?? undefined, retry },
         {
           signal: controller.signal,
           onEvent: (event) => {

@@ -25,6 +25,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
 | [ADR-016](#adr-016--demo-sign-in-per-tenant) | Demo sign-in per tenant | Accepted |
 | [ADR-017](#adr-017--an-mcp-server-for-ai-agents-read-only-same-jwt-same-isolation) | An MCP server for AI agents: read-only, same JWT, same isolation | Accepted |
 | [ADR-018](#adr-018--ai-spans-follow-the-opentelemetry-genai-semantic-conventions) | AI spans follow the OpenTelemetry GenAI semantic conventions | Accepted |
+| [ADR-021](#adr-021--agent-mode-one-langgraph-agent-the-model-or-a-deterministic-policy-decides) | Agent mode: one LangGraph agent, the model or a deterministic policy decides | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
@@ -407,7 +408,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - **App-specific attributes keep their own namespace** (`llm.latency_ms`, `llm.retries`, `llm.validation_error`, `llm.tokens.estimated`, `retrieval.*`, `answer.*`): the conventions do not define them.
   - Together with the MCP SDK's `tools/call {tool}` span (`execute_tool`, ADR-017), an agent's tool call, the workflow and its model calls form one GenAI trace.
 - **Rejected:**
-  - **An `invoke_agent` span:** this is a fixed workflow. The code decides the steps, not a model, and `invoke_workflow` is the conventions' name for exactly that.
+  - **An `invoke_agent` span** for the fixed workflow: there the code decides the steps, not a model, and `invoke_workflow` is the conventions' name for exactly that. (Agent mode, ADR-021, is an `invoke_agent` span.)
   - **Recording content** (`gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.retrieval.query.text`): the conventions make them opt-in because they carry user data. The rule stays "ids, counts, timings and model names only".
   - **An auto-instrumentation library** (OpenLLMetry, OpenInference) over LiteLLM: it would trace the provider calls but not the keyless models, the workflow, the retrieval or which prompt each call was. It would also add a dependency, and some of them record prompts by default.
   - **Keeping the old names next to the new ones:** two names for one span. The old names only lived in this repository: `check_traces.py`, the tests and the docs.
@@ -427,6 +428,52 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - `test_titles.py` and `test_suggestions.py`: their `chat` spans.
   - `test_check_traces.py`: the CI trace check passes on conforming Jaeger traces and fails on the old names, a missing attribute, a missing answer call or a missing link.
   - In CI, `scripts/check_traces.py` runs against the real stack's Jaeger.
+
+## ADR-021 · Agent mode: one LangGraph agent, the model or a deterministic policy decides
+
+- **Context:** the answer was a fixed workflow: one search, then one LLM call (ADR-010 to ADR-013). It cannot search again with other words, read the clause next to a hit, or look in a second contract. With a real LLM, function calling lets the model make those choices. The app must still answer without a key, with the same configuration.
+- **Decision:**
+  - **One graph, always** (`QUERY_MODE=auto`, the default). A LangGraph `StateGraph` (`app/agent/graph.py`): `decide` → `tools` (LangGraph's `ToolNode`) → `decide` … → `submit`. Only **who decides** changes (`app/agent/policy.py`):
+    - **With a real LLM** (`LLM_PROVIDER=litellm`): Gemini, through LangChain's LiteLLM chat model (the same provider route and key as ADR-012), with the tools bound and `tool_choice="required"`.
+    - **Keyless:** a deterministic policy that makes the workflow's calls. `search_contracts` with the question, then the app's own generation step (the extractive LLM with its calibrated threshold and retries), submitted through `submit_answer`. Keyless answers, phases and failure codes are the workflow's: a test compares them on every path.
+  - **Tools are the app's operations, not new ones:**
+    - `search_contracts(query)`: the workflow's embedding, hybrid search and reranker (`generation.service.retrieve`).
+    - `read_passage(chunk_id, neighbours)`: the same function as the MCP tool (ADR-017).
+    - `submit_answer`: the `LLMAnswer` schema, with references inlined for Gemini.
+    - The relevance judge is not used: in agent mode the model decides what is relevant.
+  - **Evidence ledger:** every passage a tool returns is added to the state. `submit_answer` goes through the existing validator (JSON, schema, quotes verbatim) against the passages in the ledger. A citation of a passage the agent never read in that run is rejected. A rejection goes back to the model as the tool's result with the reason, while attempts remain (`1 + LLM_MAX_RETRIES`). The run ends after `AGENT_MAX_STEPS` model turns (default 6).
+  - **Same result shape:** the final state goes through the workflow's own `conclude` (citations enriched from the ledger, confidence capped by the retrieval signal, injection and disagreement warnings, every "not enough information" reason). The API, the chat, the stored turns and MCP's `ask_contracts` do not change. `app.agent.answer` is the single entry point.
+  - **Isolation and untrusted text:**
+    - The tenant, the session and the providers are the run's LangGraph context (`ToolRuntime`). They are never tool arguments, so the model cannot choose a tenant.
+    - Passages flagged as prompt injection reach the model as "withheld" and cannot be cited.
+  - **Traces** (ADR-018):
+    - `invoke_agent contract_analyst` (INTERNAL), with `gen_ai.agent.name`, `rutaviva.agent.policy` (`model` / `deterministic`), steps and stop reason.
+    - `execute_tool {tool}` per call, with the retrieval spans under the search.
+    - `chat {model}` per model turn (`gen_ai.prompt.name=contract_analyst`).
+    - Ids and counts only.
+    - LangChain's own tracing service (LangSmith) is forced off when `app.agent` is imported, whatever the environment says; a test checks it.
+  - **Dependencies,** exact versions, each at least two weeks old when added: `langgraph==1.2.16`, `langchain-core==1.6.12`, `langchain-litellm==0.11.1`.
+- **Rejected:**
+  - **Agent only with a key, the workflow without:** two code paths, and CI and the keyless demo would never run the graph.
+  - **A hand-written loop over LiteLLM:** less code, but it reinvents what LangGraph gives (the state reducers, the tool node, the routing, the recursion limit). The owner asked for a framework.
+  - **LangGraph's prebuilt ReAct agent:** it has no step to validate the submission against the evidence, and it hides the routing that has to be explained.
+  - **Plan-and-execute** (a JSON plan, then its execution): it suits questions that decompose into known operations. Here the next step depends on what the last passage said.
+  - **Persisting the agent's messages (a checkpointer):** turns are already stored (ADR-010), and each question starts from the resolved standalone question. There is nothing to resume mid-run.
+  - **New fields in the API for the agent's steps:** the steps are in the trace. Adding them to `details` would change the OpenAPI contract and the generated frontend types two days before delivery.
+- **Consequences and limits:**
+  - **With a key**, a question costs several LLM calls instead of one to three, so it is slower and costs more. The step and attempt budgets bound it.
+  - **The model policy has not been measured.** Its tests use a scripted chat model, and no evaluation with Gemini in agent mode has been run. `QUERY_MODE=workflow` keeps the measured path.
+  - **The keyless "agent" decides nothing.** It is the workflow expressed as tool calls, so that the graph, the tools and the traces are exercised without a key.
+  - **Budget stops reuse an existing code.** A run that ends without a valid submission reports `validation_failed`; the trace's stop reason (`budget`, `validation_failed`, `content_filtered`) says which.
+  - **Provider errors end the run** with 503/504, as in the workflow, without a retry inside the loop.
+- **Verified by:** `backend/tests/unit/test_agent.py`:
+  - the deterministic policy equals the workflow on eight paths (answered, retried, validation failed, no results, all flagged, flagged excluded, content filtered, declared insufficient), with the same phases and the provider-error mapping;
+  - with a scripted model: tool choice and evidence, a quote from an unread passage rejected and fed back, attempts exhausted, the step budget, text instead of a call, flagged passages withheld;
+  - the tenant absent from the tool schemas;
+  - the `invoke_agent` / `execute_tool` span tree without content;
+  - LangSmith off even when the environment asks for it;
+  - the mode switch.
+  - Every chat, query and MCP integration test now runs through the agent (keyless). `test_check_traces.py` accepts an agent root with its `execute_tool` spans.
 
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 

@@ -102,7 +102,7 @@ POST /query/stream
 - Keyless, the chat span is `chat fake-extractive-v3` and there are no judge or resolver calls. After the answer, the title and the suggestions are `chat` spans too (`conversation_title`, `follow_up_suggestions`).
 - During ingestion each embedding batch is an `embeddings {model}` span inside `ingest.embed`.
 - An MCP tool call is a `tools/call {tool}` span (`execute_tool`, emitted by the MCP SDK), with the same tree below it.
-- It is a **workflow, not an agent**: the code decides the steps, so there is no `invoke_agent` span.
+- With `QUERY_MODE=auto` (default) the root is the agent, `invoke_agent contract_analyst`, with an `execute_tool {tool}` span per tool call (the search, embeddings and retrieval spans sit under `execute_tool search_contracts`). With `QUERY_MODE=workflow` it is `invoke_workflow contract_qa`, as above (ADR-021).
 
 **Attributes** (ids, counts and timings only, never document content or prompts; the conventions' opt-in content attributes such as `gen_ai.input.messages` are never set):
 
@@ -124,6 +124,16 @@ POST /query/stream
 | `EMBEDDINGS_PROVIDER` | `local`: BGE base (768 dimensions) on the CPU, inside the image | `gemini`, together with `LLM_PROVIDER=litellm`. Start from an empty database (`docker compose down -v`): documents indexed with another model are not searched, and uploading the same PDF again returns the existing document (there is no reindex job) |
 | `TEXT_EXTRACTOR` | `pdfplumber` | `docling` (build with `WITH_DOCLING_MODELS=true`; minutes per PDF on a CPU) |
 | `RERANKER` | `cross_encoder`: `ms-marco-MiniLM-L-6-v2` on the CPU, inside the image, reorders the search candidates | the same (`none` keeps the fused RRF order) |
+| `QUERY_MODE` | `auto`: the agent graph with a deterministic policy, the same steps and answers as the workflow | `auto`: the agent, where Gemini chooses the tools (function calling). `workflow` skips the agent in both cases |
+
+### Agent mode (function calling)
+
+With `QUERY_MODE=auto` every question runs through one LangGraph agent (ADR-021). Its tools are the app's own operations: `search_contracts` (the hybrid search and reranker), `read_passage` (a passage with its neighbours) and `submit_answer` (the answer schema). What changes with a key is **who decides the next call**:
+
+- **With a real LLM**, Gemini calls the tools itself: it can search again with other words, read the clause around a hit, or look in two contracts before answering. The answer is accepted only if every quote is verbatim in a passage it read in that run. Otherwise the reason goes back to the model, while attempts remain (`LLM_MAX_RETRIES`), within `AGENT_MAX_STEPS` turns.
+- **Keyless**, a deterministic policy makes the workflow's calls: one search with the question, then the extractive answer. The answers are the same as `QUERY_MODE=workflow`, through the same graph, tools and traces.
+
+The tenant is never a tool argument, flagged passages are withheld from the model, and LangChain's own tracing (LangSmith) is forced off: traces go only through OpenTelemetry.
 
 To use a real LLM, copy `.env.example` to `.env`, set those values and run `docker compose up -d`. A real provider without its key stops start-up with a clear message; it never falls back to the fake one silently. The fake LLM can also simulate failures for testing (`FAKE_LLM_MODE=invalid | invalid_once | timeout | empty`).
 
@@ -173,6 +183,7 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 - Answers validated in three layers (JSON, Pydantic schema, quotes grounded in the chunks), with a retry carrying the error and an explicit "not enough information" otherwise. Timeouts and transient errors have bounded retries.
 - Tenant isolation: a JWT per tenant, a `tenant_id` filter, and forced Row Level Security under a non-owner role.
 - Prompt injection in documents is detected at ingestion; flagged chunks are excluded and the answer warns. Disagreeing sources cap the confidence.
+- Agent mode with function calling (LangGraph): with a key Gemini chooses the tools (search, read in context, submit an answer that must quote what it read); keyless a deterministic policy runs the same graph with the workflow's answers. `QUERY_MODE=workflow` keeps the fixed pipeline.
 - MCP server at `/mcp` for AI agents: four read-only tools (search, read in context, list, ask) and a review prompt, with the same JWT and tenant isolation as the API.
 - Chat over SSE with live phases, persisted conversations (search, rename, delete) and follow-up questions; with a real LLM, generated conversation titles and suggested follow-ups; a stopped answer keeps its question to ask again.
 - React app: upload with status, document table with state in the URL, PDF viewer with the cited passage highlighted, chat with citations and export, dark mode, accessibility tests.

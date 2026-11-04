@@ -4,7 +4,7 @@
 # ///
 """Check the real-contract question sets against the PDFs they cite.
 
-    uv run sample_data/calibration/verify_questions.py [--pdfs local-docs/calibration-contracts]
+    uv run sample_data/calibration/verify_questions.py [--pdfs var/calibration-contracts]
 
 Checks, failing on the first set with errors:
 - manifest (contracts.yaml): every PDF is present, its sha256 and page count match;
@@ -130,7 +130,7 @@ def check_set(name: str, manifest: list[dict], pages: dict[str, list[str]]) -> l
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--pdfs", type=Path, default=REPO / "local-docs/calibration-contracts")
+    parser.add_argument("--pdfs", type=Path, default=REPO / "var/calibration-contracts")
     parser.add_argument("--set", choices=sorted(SETS), action="append")
     args = parser.parse_args()
 

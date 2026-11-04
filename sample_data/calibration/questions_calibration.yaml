@@ -15,6 +15,14 @@
 # pypdf text with verify_questions.py (matching ignores case and whitespace, so absent
 # terms were chosen to avoid accidental matches across word boundaries). Each answering
 # sentence was also re-read to confirm it answers the question.
+#
+# Fair questions, not traps: these are what a procurement user would ask. Removed on
+# review (ADR-011): near-miss items where a near-identical sentence answers a sibling
+# question (an overtime rate next to the hourly rates, DEF next to the diesel price, a
+# biodiesel blend next to the winter blend, a tread depth next to "tread depth and wear
+# pattern", "promptly" as a response time), a question whose documents answer it in
+# contradictory ways (offsetting claims against freight), and one whose answer needs two
+# pages read together (burning less diesel than committed).
 version: 1
 set: calibration
 questions:
@@ -224,6 +232,22 @@ questions:
       answer_has_any: ["$1,000"]
       results_in: {tenant: tenant_calibration}
 
+  - id: fedex-claim-notification-deadline
+    tenant: tenant_calibration
+    question: "Within how many days of delivery must the customer notify FedEx in writing of a pending cargo claim?"
+    kind: lexical
+    soft: false
+    note: "FedEx T&C, 'Claims against Transporting Carrier' (p.5) and 'Claims against Broker' (p.6): written notification within ten (10) days of delivery or scheduled delivery."
+    expect:
+      outcome: answered
+      sources:
+        - document: fedex_brokerage_tc.pdf
+          page: 5
+        - document: fedex_brokerage_tc.pdf
+          page: 6
+      answer_has_any: ["ten (10) days"]
+      results_in: {tenant: tenant_calibration}
+
   # ---------------------------------------------------------------- semantic
   - id: calhoun-extra-repairs-without-approval
     tenant: tenant_calibration
@@ -269,40 +293,6 @@ questions:
       answer_has_any: ["48 hours"]
       results_in: {tenant: tenant_calibration}
 
-  - id: fedex-claim-heads-up-to-broker
-    tenant: tenant_calibration
-    question: "If a load goes missing, how quickly do we have to give the broker a heads-up that we're going to claim?"
-    kind: semantic
-    soft: false
-    note: "FedEx T&C, 'Claims against Transporting Carrier' (p.5) and 'Claims against Broker' (p.6): written notification within ten (10) days of delivery or scheduled delivery."
-    expect:
-      outcome: answered
-      sources:
-        - document: fedex_brokerage_tc.pdf
-          page: 5
-        - document: fedex_brokerage_tc.pdf
-          page: 6
-      answer_has_any: ["ten (10) days"]
-      results_in: {tenant: tenant_calibration}
-
-  - id: carriage-deduct-claims-from-freight-bill
-    tenant: tenant_calibration
-    question: "Can we hold back money owed to the carrier to cover what they owe us for damaged goods?"
-    kind: semantic
-    soft: false
-    note: "Three carriage documents answer differently: STG 'No Offsets' (p.6, not permitted unless authorized in writing), FedEx 'Claims against Broker' (p.6, no right to withhold or offset), TST clause 6 (p.1, shipper may offset unpaid freight against unpaid claims)."
-    expect:
-      outcome: answered
-      sources:
-        - document: stg_drayage_rules.pdf
-          page: 6
-        - document: fedex_brokerage_tc.pdf
-          page: 6
-        - document: tst_terms_of_carriage.pdf
-          page: 1
-      answer_has_any: ["NOT PERMITTED UNLESS AUTHORIZED", "offset payment", "may offset"]
-      results_in: {tenant: tenant_calibration}
-
   - id: maine-tire-parts-price-break
     tenant: tenant_calibration
     question: "Do we get any price break on parts when Maine Commercial Tire works on our trucks?"
@@ -334,25 +324,9 @@ questions:
       answer_has_any: ["removal and cleanup", "vehicle repairs"]
       results_in: {tenant: tenant_calibration}
 
-  - id: diesel-use-less-than-committed
-    tenant: tenant_calibration
-    question: "What happens if we end up burning less fuel than we promised to buy this year?"
-    kind: semantic
-    soft: false
-    note: "Maine Bulk Diesel: Fixed Price Agreement clause 9 (p.20) commits all gallons regardless of weather; Program Terms (p.22) - State compensates actual damages from a volume shortfall after resale efforts."
-    expect:
-      outcome: answered
-      sources:
-        - document: maine_bulk_diesel_2023.pdf
-          page: 20
-        - document: maine_bulk_diesel_2023.pdf
-          page: 22
-      answer_has_any: ["regardless of weather conditions", "volume shortfall"]
-      results_in: {tenant: tenant_calibration}
-
   - id: md-coupon-odometer-coverage
     tenant: tenant_calibration
-    question: "How high up the odometer do the service booklets for each state car have to go?"
+    question: "Up to what mileage must the maintenance coupon booklet for each state vehicle go?"
     kind: semantic
     soft: false
     note: "Maryland Amendment #4, new 3.2.1.1.1 (p.1) and identical 3.2.1.2.1 (p.2): coupons cover maintenance intervals up to 200,000 miles."
@@ -463,31 +437,29 @@ questions:
       absent_terms: ["drug", "alcohol"]
       results_in: {tenant: tenant_calibration}
 
+  - id: snow-plowing-services
+    tenant: tenant_calibration
+    question: "What does the supplier charge for snow plowing at our vehicle yards?"
+    kind: unanswerable
+    soft: false
+    note: "No document covers snow removal or plowing."
+    expect:
+      outcome: insufficient_evidence
+      absent_terms: ["snow", "plow"]
+      results_in: {tenant: tenant_calibration}
+
+  - id: volume-rebates
+    tenant: tenant_calibration
+    question: "Do we earn a volume rebate or loyalty credit once our yearly spend passes a certain amount?"
+    kind: unanswerable
+    soft: false
+    note: "No rebate, loyalty or volume discount programme in any document."
+    expect:
+      outcome: insufficient_evidence
+      absent_terms: ["rebate", "loyalty", "volume discount"]
+      results_in: {tenant: tenant_calibration}
+
   # -------------------------------------------------------------- near_miss
-  - id: maine-gmc-overtime-labor-rate
-    tenant: tenant_calibration
-    question: "What overtime labor rate does O'Connor GMC charge for repairs?"
-    kind: near_miss
-    soft: false
-    note: "Present: regular hourly labor rates ($129/$139/$149) and a 35% parts discount. Absent: any overtime rate in any document."
-    expect:
-      outcome: insufficient_evidence
-      answer_lacks: ["$129.00"]
-      absent_terms: ["overtime rate", "overtime labor"]
-      results_in: {tenant: tenant_calibration}
-
-  - id: diesel-def-price
-    tenant: tenant_calibration
-    question: "What is the contracted price per gallon of diesel exhaust fluid?"
-    kind: near_miss
-    soft: false
-    note: "Present: on-road diesel fixed at $2.8100 per gallon. Absent: DEF / diesel exhaust fluid anywhere."
-    expect:
-      outcome: insufficient_evidence
-      answer_lacks: ["$2.8100"]
-      absent_terms: ["exhaust fluid"]
-      results_in: {tenant: tenant_calibration}
-
   - id: diesel-gasoline-price
     tenant: tenant_calibration
     question: "What price per gallon does the fuel supplier charge for unleaded gasoline deliveries?"
@@ -498,17 +470,6 @@ questions:
       outcome: insufficient_evidence
       answer_lacks: ["$2.8100"]
       absent_terms: ["gasoline", "unleaded"]
-      results_in: {tenant: tenant_calibration}
-
-  - id: diesel-biodiesel-blend
-    tenant: tenant_calibration
-    question: "What biodiesel blend percentage must the delivered diesel contain?"
-    kind: near_miss
-    soft: false
-    note: "Present: ULSD specifications and 'percentage blend of winter fuel must be specified on the delivery ticket'. Absent: any biodiesel blend requirement."
-    expect:
-      outcome: insufficient_evidence
-      absent_terms: ["biodiesel"]
       results_in: {tenant: tenant_calibration}
 
   - id: diesel-minimum-delivery-quantity
@@ -533,17 +494,6 @@ questions:
       absent_terms: ["early payment", "prompt payment"]
       results_in: {tenant: tenant_calibration}
 
-  - id: calhoun-tire-tread-depth-threshold
-    tenant: tenant_calibration
-    question: "At what tread depth, in 32nds of an inch, must county vehicle tires be replaced?"
-    kind: near_miss
-    soft: false
-    note: "Present: Calhoun SMI checklist inspects 'tire tread depth and wear pattern'; tires section covers plugs/patches. Absent: any numeric tread depth threshold."
-    expect:
-      outcome: insufficient_evidence
-      absent_terms: ["/32", "32nds"]
-      results_in: {tenant: tenant_calibration}
-
   - id: calhoun-umbrella-insurance
     tenant: tenant_calibration
     question: "What umbrella or excess liability insurance limit must the fleet maintenance contractor carry?"
@@ -564,17 +514,6 @@ questions:
     expect:
       outcome: insufficient_evidence
       absent_terms: ["electric vehicle", "hybrid"]
-      results_in: {tenant: tenant_calibration}
-
-  - id: emergency-road-service-response-time
-    tenant: tenant_calibration
-    question: "What is the guaranteed response time for an emergency road service call?"
-    kind: near_miss
-    soft: false
-    note: "Present: Maine Commercial Tire's $150/hr emergency road service rate; Calhoun's 24/7 emergency contact 'answered or returned promptly'. Absent: any response time commitment."
-    expect:
-      outcome: insufficient_evidence
-      absent_terms: ["response time", "within one hour", "within two hours"]
       results_in: {tenant: tenant_calibration}
 
   - id: stg-maximum-gross-weight

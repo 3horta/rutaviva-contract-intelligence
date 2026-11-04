@@ -3,6 +3,12 @@
 # Pages are physical 1-based pages of the PDFs listed in contracts.yaml (pypdf text).
 # Answers and absent_terms are checked with sample_data/calibration/verify_questions.py --set eval;
 # every answering sentence was also re-read by hand to confirm it answers the question.
+#
+# Fair questions, not traps (same review as the calibration set, ADR-011): near-miss
+# items whose topic sentence is nearly the question itself were removed (a Safeway fuel
+# surcharge that "may be revised" with no figure, a refrigerated load whose temperature
+# "is stated on the customer's notice", an after-hours rate next to the emergency repair
+# clause).
 version: 1
 set: eval
 questions:
@@ -351,17 +357,6 @@ questions:
       absent_terms: ["mileage warranty", "treadwear", "road hazard"]
       results_in: {tenant: tenant_eval}
 
-  - id: sass-after-hours-labor-rate
-    tenant: tenant_eval
-    question: "What labor rate is charged for emergency repairs done after hours or on weekends?"
-    kind: near_miss
-    soft: false
-    note: "Close topic present: emergency repairs are defined and must be reported the next business day (SASS-002A p.3); the labor rate fields on the bid sheet are blank and no after-hours rate exists."
-    expect:
-      outcome: insufficient_evidence
-      absent_terms: ["after-hours rate", "overtime", "emergency labor rate"]
-      results_in: {tenant: tenant_eval}
-
   - id: wex-gallon-limit-per-transaction
     tenant: tenant_eval
     question: "What is the maximum number of gallons a driver can buy in one transaction with the WEX card?"
@@ -384,17 +379,6 @@ questions:
       absent_terms: ["termination for convenience", "terminate the contract"]
       results_in: {tenant: tenant_eval}
 
-  - id: safeway-fuel-surcharge-percentage
-    tenant: tenant_eval
-    question: "What percentage fuel surcharge does Safeway add to freight charges?"
-    kind: near_miss
-    soft: false
-    note: "Close topic present: Safeway may revise its fuel surcharge on 30 days notice and publishes it on its website (section 4); Carver's FSC uses a DOE/EIA baseline. No surcharge percentage is stated."
-    expect:
-      outcome: insufficient_evidence
-      absent_terms: ["surcharge of", "fuel surcharge percentage"]
-      results_in: {tenant: tenant_eval}
-
   - id: carver-umbrella-coverage
     tenant: tenant_eval
     question: "How much umbrella or excess liability insurance must Carver carry?"
@@ -406,13 +390,3 @@ questions:
       absent_terms: ["umbrella", "excess liability"]
       results_in: {tenant: tenant_eval}
 
-  - id: refrigerated-load-temperature
-    tenant: tenant_eval
-    question: "What temperature must the carrier keep refrigerated food loads at?"
-    kind: near_miss
-    soft: false
-    note: "Close topic present: Safeway section 2 says the customer's Food Consignment Notice states the required temperature range; Carver section 11 disclaims temperature not expressly assumed. No actual temperature is given."
-    expect:
-      outcome: insufficient_evidence
-      absent_terms: ["refrigerat", "reefer"]
-      results_in: {tenant: tenant_eval}

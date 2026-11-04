@@ -3,7 +3,7 @@
 # The PDFs are NOT in this repository: they are public procurement records and terms
 # published by US state/county governments and carriers, but their reuse terms were not
 # reviewed, so only their source is recorded here. To reproduce the calibration, download
-# each `source_url` into a local folder (default: local-docs/calibration-contracts/, which
+# each `source_url` into a local folder (default: var/calibration-contracts/, which
 # git ignores) with the given `file` name and check its `sha256`; the verifier
 # (verify_questions.py) refuses a file whose hash does not match.
 #

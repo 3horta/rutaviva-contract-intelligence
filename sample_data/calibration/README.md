@@ -19,11 +19,11 @@ Question kinds: `lexical` (answerable, wording close to the clause), `semantic` 
 
 They are public records and terms published by US state and county governments and carriers, but their reuse terms were not reviewed, so only their source is recorded. To reproduce:
 
-1. Download each `source_url` of `contracts.yaml` into `local-docs/calibration-contracts/` (git ignores `local-docs/`) with the name given in `file`. Some sites block scripted downloads; a browser works.
+1. Download each `source_url` of `contracts.yaml` into `var/calibration-contracts/` (git ignores `var/`) with the name given in `file`. Some sites block scripted downloads; a browser works.
 2. Verify the files and the questions:
 
    ```bash
-   uv run sample_data/calibration/verify_questions.py --pdfs local-docs/calibration-contracts
+   uv run sample_data/calibration/verify_questions.py --pdfs var/calibration-contracts
    ```
 
    It fails if a hash or a page count does not match, so a changed upstream file is detected instead of silently shifting pages.

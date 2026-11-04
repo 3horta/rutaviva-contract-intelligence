@@ -154,6 +154,7 @@ export function ChatPage() {
               message={message}
               locked={streaming}
               onRetry={index === lastAnswerIndex ? retryLast : undefined}
+              conversationId={conversation.data?.id}
             />
           ),
         )}

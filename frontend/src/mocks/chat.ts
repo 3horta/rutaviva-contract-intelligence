@@ -22,11 +22,13 @@ import type {
   ConversationMessage,
   ConversationSummary,
   DocumentOut,
+  FeedbackRating,
+  MessageFeedback,
   QueryPhase,
   QueryResponse,
   RetrievedChunk,
 } from "../api/types";
-import { INSUFFICIENT_EVIDENCE_ANSWER } from "../api/types";
+import { FEEDBACK_COMMENT_MAX, INSUFFICIENT_EVIDENCE_ANSWER } from "../api/types";
 
 export interface MockConversation {
   id: string;
@@ -342,6 +344,50 @@ export function listConversations(conversations: MockConversation[], params: URL
 
 export function conversationDetail(conversation: MockConversation): ConversationDetail {
   return { ...summary(conversation), messages: conversation.messages };
+}
+
+/** Ratings of answers, by message id (message ids are unique across tenants). */
+const feedbackByMessage = new Map<string, MessageFeedback>();
+
+export type FeedbackResult =
+  | { ok: true; feedback: MessageFeedback | null }
+  | { ok: false; status: 404 | 422; detail: string };
+
+const RATINGS: readonly string[] = ["up", "down"] satisfies FeedbackRating[];
+
+/**
+ * PUT (`body`) or DELETE (`body` null) the rating of an answer, with the API's
+ * rules: only stored answers (not questions, not interrupted turns), a rating
+ * "up" or "down", an optional comment of at most 1000 characters, trimmed.
+ */
+export function rateMessage(
+  conversation: MockConversation,
+  messageId: string,
+  body: Record<string, unknown> | null,
+): FeedbackResult {
+  const message = conversation.messages.find((m) => m.id === messageId);
+  if (!message) return { ok: false, status: 404, detail: "Message not found." };
+  if (message.role !== "assistant" || message.status === "interrupted") {
+    return { ok: false, status: 422, detail: "Only an answer can be rated." };
+  }
+  if (!body) {
+    feedbackByMessage.delete(messageId);
+    return { ok: true, feedback: null };
+  }
+  const { rating, comment = null } = body;
+  if (typeof rating !== "string" || !RATINGS.includes(rating)) {
+    return { ok: false, status: 422, detail: 'The rating must be "up" or "down".' };
+  }
+  if (comment !== null && typeof comment !== "string") {
+    return { ok: false, status: 422, detail: "The comment must be text." };
+  }
+  const trimmed = comment?.trim() ?? "";
+  if (trimmed.length > FEEDBACK_COMMENT_MAX) {
+    return { ok: false, status: 422, detail: `The comment must have at most ${FEEDBACK_COMMENT_MAX} characters.` };
+  }
+  const feedback: MessageFeedback = { rating: rating as FeedbackRating, comment: trimmed || null };
+  feedbackByMessage.set(messageId, feedback);
+  return { ok: true, feedback };
 }
 
 export function renameConversation(conversation: MockConversation, title: string): ConversationSummary {

@@ -85,6 +85,23 @@ export type ConversationMessage = Schemas["MessageOut"];
 export type MessageStatus = NonNullable<ConversationMessage["status"]>;
 export type ConversationDetail = Schemas["ConversationOut"];
 
+/**
+ * A user's rating of an answer. Hand-written until the API stores feedback
+ * (then it comes from the schema): `comment` is trimmed, null when empty.
+ */
+export type FeedbackRating = "up" | "down";
+export interface MessageFeedback {
+  rating: FeedbackRating;
+  comment: string | null;
+}
+/** Body of PUT .../messages/{id}/feedback. */
+export interface FeedbackInput {
+  rating: FeedbackRating;
+  comment?: string | null;
+}
+/** At most this many characters of comment (the API rejects more). */
+export const FEEDBACK_COMMENT_MAX = 1_000;
+
 export interface ConversationListQuery {
   limit: number;
   offset: number;

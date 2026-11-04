@@ -5,6 +5,7 @@
  * server-side paging/sorting/search, documents that move through statuses.
  */
 import { API_PREFIX, setFetchImplementation } from "../api/client";
+import { setFeedbackRouteAvailable } from "../api/feedback";
 import type {
   DemoTenantList,
   DemoTokenResponse,
@@ -21,6 +22,7 @@ import {
   conversationDetail,
   listConversations,
   newConversation,
+  rateMessage,
   renameConversation,
   seedConversations,
   setMockTimeScale,
@@ -278,6 +280,17 @@ function handleChat(
 
   const index = conversations.findIndex((c) => c.id === parts[1]);
   const conversation = conversations[index];
+  if (parts[0] === "conversations" && parts.length === 5 && parts[2] === "messages" && parts[4] === "feedback") {
+    if (!conversation) return problem(404, "Not found", "Conversation not found.");
+    if (method !== "PUT" && method !== "DELETE") {
+      return problem(405, "Method not allowed", `${method} is not allowed here.`);
+    }
+    const result = rateMessage(conversation, parts[3] ?? "", method === "PUT" ? readJson(init.body) : null);
+    if (!result.ok) {
+      return problem(result.status, result.status === 404 ? "Not found" : "Validation error", result.detail);
+    }
+    return result.feedback ? json(result.feedback) : new Response(null, { status: 204 });
+  }
   if (parts[0] !== "conversations" || parts.length !== 2 || !conversation) {
     return problem(404, "Not found", "Conversation not found.");
   }
@@ -378,6 +391,7 @@ export function installMockApi({ instant = false }: { instant?: boolean } = {}):
   latencyScale = instant ? 0 : 1;
   setMockTimeScale(latencyScale);
   setFetchImplementation(mockFetch);
+  setFeedbackRouteAvailable(true);
   if (instant) return;
   console.info("[mocks] API served in memory. Demo chunk link:", demoChunkLink());
 }

@@ -263,6 +263,7 @@
 
 .actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 2px;
   margin: -4px 0 -8px -6px;
 }
@@ -356,4 +357,62 @@
 .suggestion:hover {
   border-color: var(--rv-primary);
   color: var(--rv-primary);
+}
+
+/* Rating of an answer: 👍 / 👎 next to the other actions, then an optional comment. */
+.rating {
+  display: flex;
+  gap: 2px;
+}
+
+.actions .pressed {
+  background: var(--rv-primary-soft);
+  color: var(--rv-primary);
+}
+
+.feedbackNote,
+.feedbackError {
+  align-self: center;
+  font-size: 0.78rem;
+}
+
+/* The live region stays in place (empty) so screen readers announce it when it fills. */
+.feedbackNote:not(:empty),
+.feedbackError {
+  margin-left: 6px;
+}
+
+.feedbackNote {
+  color: var(--rv-muted);
+}
+
+.feedbackError {
+  color: var(--rv-danger-text);
+}
+
+.feedbackForm {
+  display: grid;
+  gap: 6px;
+  max-width: 560px;
+  margin-top: 4px;
+}
+
+.feedbackLabel {
+  color: var(--rv-text-soft);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.optional {
+  color: var(--rv-muted);
+  font-weight: 400;
+}
+
+.feedbackForm textarea {
+  resize: vertical;
+}
+
+.feedbackFormActions {
+  display: flex;
+  gap: 6px;
 }

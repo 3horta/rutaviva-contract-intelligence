@@ -21,6 +21,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
 | [ADR-012](#adr-012--interchangeable-providers-keyless-by-default-litellm-with-a-key) | Interchangeable providers: keyless by default, LiteLLM with a key | Accepted |
 | [ADR-013](#adr-013--untrusted-content-flag-exclude-and-warn-disagreeing-sources-degrade-confidence) | Untrusted content: flag, exclude and warn; disagreeing sources degrade confidence | Accepted |
 | [ADR-014](#adr-014--quality-by-behaviour-an-evaluation-harness-over-a-small-question-set) | Quality by behaviour: an evaluation harness over a small question set | Accepted |
+| [ADR-015](#adr-015--reranking-a-local-cross-encoder-between-fusion-and-selection) | Reranking: a local cross-encoder between fusion and selection | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
@@ -286,6 +287,28 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
 - **In CI:** the `e2e` job builds the stack with no `.env`, runs `make eval` (fails on any hard case), checks that the corrupt and scanned PDFs fail with `corrupt_pdf` / `empty_pdf`, and checks the traces through Jaeger's API (`scripts/check_traces.py`: the upload trace spans API and worker; `query.answer` links to an ingestion trace).
 - **Verified by:** `tests/unit/test_eval_lib.py`: each check passing and failing, number normalisation, the leak check on citations and on retrieved-only chunks, soft to `WARN`, repeat to `FLAKY`, the exit code, document polling with a timeout, and loading the sample set.
 
+## ADR-015 · Reranking: a local cross-encoder between fusion and selection
+
+- **Context:** both retrieval branches judge a chunk without reading it next to the question. The vector branch compares two vectors computed separately; full text counts shared words. So a clause that only *mentions* the question's words can outrank the one that answers it: for "What is the penalty for late tire delivery?", a notice clause that repeats "late delivery" can beat the liquidated-damages clause. Until now the fused RRF order went straight to selection, and reranking was listed as not done.
+- **Decision:** rerank the fused candidates with a **cross-encoder**: a small BERT-type model that reads each (question, chunk) pair together and returns a relevance score. It is not an LLM and generates no text.
+  - **Model:** `cross-encoder/ms-marco-MiniLM-L-6-v2` (22M parameters, ~90 MB of weights), trained for passage ranking in English, like the contracts. It runs on the CPU and is baked into the image, so it needs no key and no network.
+  - **Where:** inside `search()` (`app/retrieval/rerank.py`, called from `hybrid.py`), between RRF fusion and `select_chunks`. It scores every fused candidate (at most 2 × 40); `select_chunks` then applies the same rules (near-duplicates, at most 3 per document) and keeps the top 8 of the **new** order. Reranking only the final 8 would gain nothing: the point is to rescue a chunk that RRF left in 15th place.
+  - **Pipeline:** hybrid SQL (tenant-filtered) → RRF → **rerank** → selection → relevance judge (real LLM only) → LLM → validation. With a real LLM both steps run: the cross-encoder orders (local, cheap), the judge removes what is irrelevant (ADR-012).
+  - **Guarantees:** it only reorders, never adds or drops a candidate. It only sees the asking tenant's chunks, because the SQL already filtered them. If the model fails, the RRF order is kept (`retrieval.rerank_failed` in the logs): a reranker problem never fails a query.
+  - **Switch:** `RERANKER=cross_encoder` (default) | `none` (the RRF order; what the tests use). `RERANKER_MODEL` changes the model.
+  - **Loading:** the API loads the model at start-up with the embedding model (ADR-009); the worker never reranks and does not load it. No new dependency: `CrossEncoder` ships with `sentence-transformers`, already in the lock.
+  - **Observability:** a `retrieval.rerank` span with the model, the number of candidates, the latency and whether it failed.
+  - **API:** unchanged. `details.retrieved[].score` is still the fused RRF score; with reranking on, the list is in the cross-encoder's order.
+- **Rejected:**
+  - `BAAI/bge-reranker-base` (~1.1 GB): better rankings, but more than ten times the size and several times the CPU time.
+  - `ms-marco-MiniLM-L-12-v2`: slightly better, about twice as slow.
+  - Reranking with the LLM: that is what the relevance judge already does with a real LLM; in keyless mode there is no LLM to ask.
+- **Consequences:**
+  - One more model in the API: ~90 MB in the image and in memory, plus one forward pass per candidate and question.
+  - The keyless answer rule (ADR-011) was calibrated on the RRF order. Reranking can change which chunks reach the extractive LLM, so the calibrated threshold may move; it has not been recalibrated.
+  - **Not yet measured end to end:** the one `make eval` run on the development machine was not valid. The host was saturated, and 14 of 21 requests timed out at 180 s; the two answered cases passed. The CI `e2e` job runs `make eval` on a clean runner with the default (`RERANKER=cross_encoder`) and fails on any hard case. If reranking makes a hard case fail, the default goes back to `none`.
+- **Verified by:** `tests/unit/test_rerank.py` (reordering by score, ties keep the RRF order, long chunks clipped, no model call under two candidates, failures and a wrong number of scores keep the RRF order, selection follows the new order, the model loads in the API only); `tests/integration/test_retrieval.py` (against Postgres: a stand-in model reorders the same candidates and only ever sees the asking tenant's chunks); `tests/contract/test_cross_encoder.py` (the real model ranks the penalty clause above the notice clause, deterministically; Docker only).
+
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 
 - **Context:** answers arrive as Server-Sent Events from `POST /query/stream`. `EventSource` can only GET and cannot send the `Authorization` header.
@@ -437,7 +460,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
     - **Why RRF:** it fuses ranks, not scores, and cosine and `ts_rank_cd` are on unrelated scales.
     - **Why vector-leaning:** users paraphrase ("walk away from the deal early" vs "terminate for convenience"). Full text still matters for exact identifiers and figures ("RV-IRP-7", "PM-A"). A chunk found by both branches wins.
   - Then at most 3 chunks per document and near-duplicates dropped within a document, so one long contract cannot fill the context and two contracts in disagreement both reach the model.
-  - **Reranking:** no cross-encoder (weight and latency on a CPU). With a real LLM, a relevance judge on the fast model narrows the candidates and never empties them (ADR-012). In keyless mode the fused order is used.
+  - **Reranking:** a local cross-encoder (`ms-marco-MiniLM-L-6-v2`, ~90 MB) reads each question–candidate pair and reorders the fused candidates before the per-document cap and the top 8 (ADR-015). It fixes what neither branch can: a clause that shares the question's words but does not answer it. With a real LLM, a relevance judge on the fast model then narrows the chosen chunks and never empties them (ADR-012).
 - **Justifying quality without a large set:** check behaviours, not scores (ADR-014).
   - A small, hand-checked question set covers each designed behaviour: exact lookups, paraphrases, unanswerable questions, tenant isolation, contradictions and injection. The eval harness checks each one through the real API, including that **no chunk of another tenant is even retrieved**.
   - The keyless "not enough information" threshold was calibrated on 14 public contracts split by document, and evaluated once on the held-out ones (ADR-011). Both numbers are reported, the weak ones included.
@@ -490,6 +513,7 @@ Each case gets a different response:
 - **A real embedding model instead of a fake one at run time.** Paraphrases work without a key, at the cost of a 2.7 GB image and CPU time. Tests keep a deterministic fake.
 - **pdfplumber instead of Docling by default:** seconds instead of minutes per PDF on a CPU, at the cost of layout understanding (ADR-008).
 - **RLS on top of the filter:** more moving parts for a second layer of isolation (ADR-002).
+- **A cross-encoder before selection:** better ordering of the candidates, at the cost of one more model in the API (~90 MB) and a forward pass per candidate on every question (ADR-015).
 - **Validated answers instead of streamed tokens:** the user waits for the whole answer, but never sees unvalidated text. Phases are streamed meanwhile (ADR-010).
 
 ## Known limits

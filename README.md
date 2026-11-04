@@ -84,6 +84,7 @@ The collector receives the spans and forwards them; Jaeger (all-in-one, in-memor
 | `LLM_PROVIDER` | `fake`: an extractive LLM that answers with the contract's own sentences, ranked with the embedding model, behind a calibrated "not enough information" rule | `litellm`, with `LLM_MODEL=gemini/gemini-3.5-flash` and `GEMINI_API_KEY` |
 | `EMBEDDINGS_PROVIDER` | `local`: BGE base (768 dimensions) on the CPU, inside the image | `gemini`, together with `LLM_PROVIDER=litellm`. Start from an empty database (`docker compose down -v`): documents indexed with another model are not searched, and uploading the same PDF again returns the existing document (there is no reindex job) |
 | `TEXT_EXTRACTOR` | `pdfplumber` | `docling` (build with `WITH_DOCLING_MODELS=true`; minutes per PDF on a CPU) |
+| `RERANKER` | `cross_encoder`: `ms-marco-MiniLM-L-6-v2` on the CPU, inside the image, reorders the search candidates | the same (`none` keeps the fused RRF order) |
 
 To use a real LLM, copy `.env.example` to `.env`, set those values and run `docker compose up -d`. A real provider without its key stops start-up with a clear message; it never falls back to the fake one silently. The fake LLM can also simulate failures for testing (`FAKE_LLM_MODE=invalid | invalid_once | timeout | empty`).
 
@@ -129,7 +130,7 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 - Upload per tenant returns the id and `pending` at once; type (magic bytes) and size validated; duplicates detected by SHA-256 per tenant.
 - Celery task (Redis broker): extract → chunk by page, with bounding boxes → embed → store. Idempotent and retryable: a lease with attempts and fencing, `acks_late`, and a closed set of failure codes. No document is left stuck in `processing`.
   Documents are processed one at a time by default; set `WORKER_CONCURRENCY` or add worker replicas to process several in parallel (see DECISIONS.md).
-- Hybrid search: pgvector plus PostgreSQL full text, fused with weighted RRF in one SQL query, always filtered by tenant.
+- Hybrid search: pgvector plus PostgreSQL full text, fused with weighted RRF in one SQL query, always filtered by tenant, then reordered by a local cross-encoder.
 - Answers validated in three layers (JSON, Pydantic schema, quotes grounded in the chunks), with a retry carrying the error and an explicit "not enough information" otherwise. Timeouts and transient errors have bounded retries.
 - Tenant isolation: a JWT per tenant, a `tenant_id` filter, and forced Row Level Security under a non-owner role.
 - Prompt injection in documents is detected at ingestion; flagged chunks are excluded and the answer warns. Disagreeing sources cap the confidence.
@@ -141,7 +142,7 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 ## What is not done
 
 - **OCR:** a scanned PDF fails with `empty_pdf` ("no extractable text").
-- **Reranking:** no cross-encoder. With a real LLM a relevance judge filters the candidates; in keyless mode the fused order is used.
+- **Reranking:** the cross-encoder is English-only and its effect has not been recalibrated into the keyless answer rule (ADR-015).
 - **Metrics:** no OpenTelemetry metrics or dashboards (Prometheus or Grafana); quality and cost signals are span attributes and logs.
 - **Traces from the browser:** traces start at the API.
 - **Product features:** 👍/👎 feedback on answers, suggested follow-up questions.

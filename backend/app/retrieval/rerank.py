@@ -34,6 +34,7 @@ import time
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any, Protocol
 
+from app.core import metrics
 from app.core.config import Settings
 from app.core.tracing import (
     RERANK_CANDIDATES,
@@ -94,6 +95,7 @@ class CrossEncoderReranker:
                 scores = self._scores(question, candidates)
             except Exception as exc:  # model errors, wrong shape: all the same
                 set_attributes(rerank_span, **{RERANK_FAILED: True})
+                metrics.record_rerank_failure()
                 logger.warning(
                     "retrieval.rerank_failed",
                     extra={"error_type": type(exc).__name__, "candidates": len(candidates)},

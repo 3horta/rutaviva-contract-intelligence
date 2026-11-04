@@ -1,6 +1,6 @@
-# OpenTelemetry Collector: receives OTLP from the API and the worker and forwards the
-# traces to Jaeger. The apps only know the collector, so the tracing backend can change
-# here without touching their configuration.
+# OpenTelemetry Collector: receives OTLP from the API and the worker, forwards the traces
+# to Jaeger and exposes the metrics for Prometheus (ADR-020). The apps only know the
+# collector, so the backends can change here without touching their configuration.
 receivers:
   otlp:
     protocols:
@@ -23,6 +23,12 @@ exporters:
     endpoint: jaeger:4317
     tls:
       insecure: true
+  # Metrics in Prometheus text format at :8889/metrics, for any Prometheus to scrape.
+  # `service.name` becomes the `job` label and `service.instance.id` the `instance`
+  # label, so each process keeps its own series. Series of a process that stopped
+  # reporting disappear after `metric_expiration` (default 5m).
+  prometheus:
+    endpoint: 0.0.0.0:8889
 
 extensions:
   health_check:
@@ -35,3 +41,7 @@ service:
       receivers: [otlp]
       processors: [memory_limiter, batch]
       exporters: [otlp/jaeger]
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheus]

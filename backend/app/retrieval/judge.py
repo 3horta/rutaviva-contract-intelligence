@@ -22,6 +22,7 @@ import logging
 from dataclasses import dataclass
 from typing import Protocol
 
+from app.core import metrics
 from app.core.config import Settings
 from app.core.tracing import JUDGE_CANDIDATES, JUDGE_FAILED, JUDGE_KEPT, set_attributes, span
 from app.generation.prompt import escape_document_text
@@ -96,6 +97,7 @@ class LLMRelevanceJudge:
                 relevant = self._relevant_ids(question, chunks)
             except Exception as exc:  # provider errors, bad JSON, wrong shape: all the same
                 set_attributes(judge_span, **{JUDGE_FAILED: True, JUDGE_KEPT: len(chunks)})
+                metrics.record_judge_failure()
                 logger.warning(
                     "retrieval.judge_failed",
                     extra={"error_type": type(exc).__name__, "candidates": len(chunks)},

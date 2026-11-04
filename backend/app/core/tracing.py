@@ -23,7 +23,9 @@ Content attributes the conventions define as opt-in (`gen_ai.input.messages`,
 `gen_ai.output.messages`, `gen_ai.retrieval.query.text`) are never recorded.
 """
 
+import contextvars
 import json
+import time
 from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -31,6 +33,8 @@ from typing import Any
 
 from opentelemetry import trace
 from opentelemetry.trace import Span, SpanContext, SpanKind, Status, StatusCode, TraceFlags
+
+from app.core import metrics
 
 _tracer = trace.get_tracer("rutaviva")
 
@@ -156,23 +160,87 @@ def model_ref(model_id: str) -> ModelRef:
     return ModelRef(provider, name, int(dims) if dims.isdigit() else None)
 
 
+@dataclass
+class _ModelCall:
+    """The model call in progress, for `record_usage` (set by `model_span`)."""
+
+    metric_attributes: dict[str, Any]
+    prompt_name: str | None
+
+
+_model_call: contextvars.ContextVar[_ModelCall | None] = contextvars.ContextVar(
+    "model_call", default=None
+)
+
+
 @contextmanager
 def model_span(operation: str, model_id: str, **attributes: Any) -> Iterator[Span]:
     """A CLIENT span for one model call: `{operation} {model}` (`chat`, `embeddings`),
-    with `gen_ai.operation.name`, `gen_ai.provider.name` and `gen_ai.request.model`."""
+    with `gen_ai.operation.name`, `gen_ai.provider.name` and `gen_ai.request.model`.
+
+    It also records the call's duration as the GenAI metric of its operation (with
+    `error.type` when it failed). Tokens are recorded by `record_usage`, called inside
+    the block once the provider has answered."""
     model = model_ref(model_id)
-    with span(
-        f"{operation} {model.name}",
-        kind=SpanKind.CLIENT,
+    genai = {
+        GEN_AI_OPERATION_NAME: operation,
+        GEN_AI_PROVIDER_NAME: model.provider,
+        GEN_AI_REQUEST_MODEL: model.name,
+    }
+    call = _ModelCall(metric_attributes=dict(genai), prompt_name=attributes.get(GEN_AI_PROMPT_NAME))
+    token = _model_call.set(call)
+    started = time.perf_counter()
+    error_type: str | None = None
+    try:
+        with span(
+            f"{operation} {model.name}",
+            kind=SpanKind.CLIENT,
+            **genai,
+            **{GEN_AI_EMBEDDINGS_DIMENSION: model.dimensions},
+            **attributes,
+        ) as current:
+            yield current
+    except Exception as exc:
+        error_type = _error_type(exc)
+        raise
+    finally:
+        _model_call.reset(token)
+        metrics.record_model_duration(
+            operation,
+            time.perf_counter() - started,
+            {**call.metric_attributes, ERROR_TYPE: error_type},
+        )
+
+
+def record_usage(
+    target: Span,
+    *,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    response_model: str | None = None,
+    **attributes: Any,
+) -> None:
+    """Token usage of the current model call: on its span (`gen_ai.usage.*`,
+    `gen_ai.response.model`, plus `attributes`) and in the token metrics. Call it inside
+    `model_span`; outside one, only the span is updated."""
+    response = model_ref(response_model).name if response_model else None
+    set_attributes(
+        target,
         **{
-            GEN_AI_OPERATION_NAME: operation,
-            GEN_AI_PROVIDER_NAME: model.provider,
-            GEN_AI_REQUEST_MODEL: model.name,
-            GEN_AI_EMBEDDINGS_DIMENSION: model.dimensions,
+            GEN_AI_RESPONSE_MODEL: response,
+            GEN_AI_INPUT_TOKENS: input_tokens,
+            GEN_AI_OUTPUT_TOKENS: output_tokens,
         },
         **attributes,
-    ) as current:
-        yield current
+    )
+    call = _model_call.get()
+    if call is None:
+        return
+    if response:
+        call.metric_attributes[GEN_AI_RESPONSE_MODEL] = response
+    metrics.record_tokens(
+        input_tokens, output_tokens, call.metric_attributes, prompt_name=call.prompt_name
+    )
 
 
 def retrieved_documents(items: Sequence[tuple[str, float]]) -> str:

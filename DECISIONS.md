@@ -25,6 +25,7 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
 | [ADR-016](#adr-016--demo-sign-in-per-tenant) | Demo sign-in per tenant | Accepted |
 | [ADR-017](#adr-017--an-mcp-server-for-ai-agents-read-only-same-jwt-same-isolation) | An MCP server for AI agents: read-only, same JWT, same isolation | Accepted |
 | [ADR-018](#adr-018--ai-spans-follow-the-opentelemetry-genai-semantic-conventions) | AI spans follow the OpenTelemetry GenAI semantic conventions | Accepted |
+| [ADR-020](#adr-020--metrics-otel-genai-metrics-and-app-counters-exported-by-the-collector) | Metrics: OTel GenAI metrics and app counters, exported by the collector | Accepted |
 | [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 | [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
@@ -428,6 +429,42 @@ how generative AI was used are at the end: [Answers to the open questions](#answ
   - `test_check_traces.py`: the CI trace check passes on conforming Jaeger traces and fails on the old names, a missing attribute, a missing answer call or a missing link.
   - In CI, `scripts/check_traces.py` runs against the real stack's Jaeger.
 
+## ADR-020 · Metrics: OTel GenAI metrics and app counters, exported by the collector
+
+- **Context:** the traces describe one request at a time. Questions such as "is the share of 'not enough information' rising?", "p95 of the LLM calls?" or "where do the tokens go?" need numbers aggregated over time. The signals existed (span attributes, stored fields), but nothing aggregated them. Docker on the target machine is already at its memory limit.
+- **Decision:**
+  - **OpenTelemetry metrics through the existing collector.** The API and each worker process get a MeterProvider with a periodic OTLP exporter (every 15 s), configured next to the tracer in `app/core/telemetry.py` (post-fork in the worker). The collector adds a metrics pipeline with the `prometheus` exporter on `:8889`, published on `127.0.0.1` only. Each process has its own `service.instance.id`, so two workers, or a restarted API, never overwrite each other's series.
+  - **GenAI conventions where they exist**, recorded by `tracing.model_span` for every model call (ADR-018):
+    - `gen_ai.client.inference.duration` and `gen_ai.client.embeddings.duration`, with the recommended bucket boundaries and `error.type` on failures;
+    - `gen_ai.client.inference.usage.input_tokens` / `.output_tokens`, only when the provider reports them, with modality `unknown`.
+    - Their labels are the ones the conventions allow, and no others.
+  - **App metrics for the rest** (`app/core/metrics.py`, all instruments in one place):
+    - `rutaviva.answers` by status, insufficient reason and confidence;
+    - validation failures;
+    - prompt-injection chunks (ingestion and query);
+    - documents processed by status and failure code, and ingestion duration;
+    - reranker and judge failures;
+    - `rutaviva.llm.tokens` by prompt template. The conventions do not allow `gen_ai.prompt.name` on their token metrics, and "which prompt costs most" is the useful cut.
+  - **Bounded labels only:** status, reason, model, provider, prompt template. Never tenant, document, chunk, conversation or question ids.
+- **Rejected:**
+  - **Shipping Prometheus and Grafana containers:** two more services, and memory, on a machine where Docker is already at its limit. The collector's endpoint works with any Prometheus, and a dashboard is a deployment choice.
+  - **A tenant label:** one series per tenant and metric grows with the customers. Per-tenant usage is already stored with each answer and document.
+  - **Adding `gen_ai.prompt.name` to the GenAI metrics:** the conventions do not list it for them. A separate app counter keeps the standard metrics standard.
+  - **Prometheus client libraries in the apps:** a second telemetry stack, and a scrape endpoint in every worker process. OTLP to the collector is one path for traces and metrics.
+- **Consequences and limits:**
+  - No alert rules ship. The README gives the queries an alert would use: insufficient-answer share, p95 latency, tokens per prompt.
+  - Metrics are only exported when `OTEL_EXPORTER_OTLP_ENDPOINT` is set, which Compose does. Without it nothing is recorded.
+  - Up to 15 s of metrics are lost if a process is killed. A process that stops reporting disappears from `:8889` after 5 minutes.
+  - The conventions are *development*: names may change upstream, but they live in one module.
+- **Verified by:** `backend/tests/unit/test_metrics.py`, with the SDK's in-memory reader:
+  - a chat call records the GenAI duration and tokens with exactly the allowed labels, and the per-prompt tokens;
+  - a failed call records `error.type` and no tokens;
+  - embeddings have their own duration;
+  - answers are counted by outcome, with validation failures;
+  - documents are counted when they end, not when a delivery is skipped, with their duration;
+  - no label carries a tenant, document or question id.
+  - Not verified: the collector configuration against a running stack (no Docker run). It follows the `prometheus` exporter of collector-contrib v0.130.0.
+
 ## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
 
 - **Context:** answers arrive as Server-Sent Events from `POST /query/stream`. `EventSource` can only GET and cannot send the `Authorization` header.
@@ -612,15 +649,16 @@ Each case gets a different response:
   - **One trace per question**, named by the OpenTelemetry GenAI conventions (ADR-018): the conversation turn, the workflow `invoke_workflow contract_qa`, `embeddings {model}`, `retrieval` (hits per branch, ids and scores of the results), the relevance judge (real LLM only), and one `chat {model}` span per LLM attempt, with the answer's validation.
   - The question's workflow span **links** to the ingestion trace of each document it used. They are separate traces because a question is not caused by an upload, but one click leads from one to the other.
   - **Attributes:** tenant, document id, pages, chunk count, embedding model and batch size, task attempt and failure code, retrieval counts, LLM model, `llm.latency_ms`, `gen_ai.usage.input_tokens` / `output_tokens`, `llm.tokens.estimated` (true when the provider reports no usage), retries, validation errors, confidence, citation count, insufficient evidence, flagged-injection count.
+- **Metrics (ADR-020):** OpenTelemetry metrics through the same collector, exposed for Prometheus on `:8889`. They include the GenAI convention metrics for model calls (duration, tokens) and app counters: answers by outcome, validation failures, prompt injection, documents processed and ingestion time, reranker and judge failures, and tokens per prompt template. Labels are bounded values, never ids.
 - **Logs:** JSON, one event per line, with `trace_id` and `span_id`. The two are joined by the trace id (shown in the chat's "How it was answered").
   - Each line logged inside a span is also added to it as a **span event** (same name and fields, minus the exception text), so Jaeger shows the logs of a request inside its trace. The uvicorn access line is not copied: the server span already says the same.
   - Rejected: a log backend (Loki + Grafana). Jaeger does not store logs, and two more containers go against a "simple" tracing backend; stdout plus the span events cover the demo.
 - **Stored with the data** (queryable without a tracing backend):
   - per document: processing time, embedding calls and tokens;
   - per answer: latency, tokens in and out, model, attempts, and the retrieved chunks with their scores.
-- **Detecting degradation:** a rising share of `answer.insufficient`, lower citation counts or more validation retries on the spans point to a retrieval or quality problem; tokens and latency per answer point to cost.
+- **Detecting degradation:** a rising share of `insufficient_evidence` in `rutaviva.answers`, more `rutaviva.answer.validation_failures` or reranker and judge failures point to a retrieval or quality problem. `rutaviva.llm.tokens` per prompt template and the p95 of `gen_ai.client.inference.duration` point to cost and latency. The spans give the detail of any single request.
 - **Left out for now:**
-  - OpenTelemetry metrics and dashboards (Prometheus, Grafana) and alerts: the signals exist as span attributes and stored fields, but nothing aggregates them yet.
+  - Prometheus and Grafana containers, dashboards and alert rules: the metrics are exposed by the collector for any Prometheus (ADR-020).
   - Cost in currency.
   - Traces that start in the browser.
   - Online quality scoring.

@@ -73,9 +73,10 @@ There is also a prompt, `review_contract`, that walks through a contract topic b
 
 ```
 api / worker  ──OTLP──►  otel-collector  ──OTLP──►  jaeger (UI on :16686)
+                                         └──────►  :8889/metrics (Prometheus format)
 ```
 
-The collector receives the spans and forwards them; Jaeger (all-in-one, in-memory storage) stores and shows them.
+The collector receives the spans and the metrics: it forwards the spans to Jaeger (all-in-one, in-memory storage), which stores and shows them, and exposes the metrics on `:8889`.
 
 **Services in Jaeger.** Each process exports under its own name: `rutaviva-api`, `rutaviva-worker` and `rutaviva-migrate` (the migrations at start-up). The service picker is only a search filter. A trace is not split by service: the upload trace below holds spans from the API *and* the worker, so searching `rutaviva-api` or `rutaviva-worker` finds the same trace.
 
@@ -113,6 +114,41 @@ POST /query/stream
 | `retrieval.vec_hits`, `retrieval.fts_hits`, `retrieval.results`, `gen_ai.retrieval.documents` | `retrieval` |
 | `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.prompt.name`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `llm.latency_ms`, `llm.tokens.estimated`, `llm.retries`, `llm.validation_error` | `chat {model}` |
 | `answer.confidence`, `answer.citations`, `prompt_injection.flagged` | `invoke_workflow contract_qa` |
+
+**Metrics.** The API and the worker push OpenTelemetry metrics to the collector, which exposes them in Prometheus format at `http://localhost:8889/metrics` (ADR-020). No Prometheus or Grafana container is shipped: any Prometheus can scrape `:8889`, and `curl` shows them:
+
+```bash
+curl -s localhost:8889/metrics | grep -E '^(rutaviva|gen_ai)_'
+```
+
+In Prometheus, dots become underscores, counters end in `_total` and durations in `_seconds`. Each process is its own series: `service.name` → `job`, `service.instance.id` → `instance`. Labels are bounded values only, never tenant, document or question ids.
+
+| Metric | Type | Labels |
+|---|---|---|
+| `gen_ai.client.inference.duration` (GenAI convention) | histogram, s | `gen_ai.operation.name`, `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.response.model`, `error.type` |
+| `gen_ai.client.embeddings.duration` (GenAI convention) | histogram, s | same, for embedding calls |
+| `gen_ai.client.inference.usage.input_tokens` / `.output_tokens` (GenAI convention) | counter | provider, model, `gen_ai.token.modality` |
+| `rutaviva.llm.tokens` | counter | `gen_ai.prompt.name` (`answer`, `relevance_judge`, …), `gen_ai.request.model`, `token.direction` |
+| `rutaviva.answers` | counter | `status`, `reason` (why insufficient), `confidence` |
+| `rutaviva.answer.validation_failures` | counter | `reason` |
+| `rutaviva.prompt_injection.flagged` | counter (chunks) | `stage` (`ingestion`, `query`) |
+| `rutaviva.documents.processed` / `rutaviva.ingestion.duration` | counter / histogram, s | `status`, `failure_code` |
+| `rutaviva.rerank.failures`, `rutaviva.judge.failures` | counter | — |
+
+Example queries:
+
+```promql
+# Share of questions answered "not enough information" over the last hour
+sum(rate(rutaviva_answers_total{status="insufficient_evidence"}[1h]))
+  / sum(rate(rutaviva_answers_total[1h]))
+
+# p95 latency of LLM calls, by model
+histogram_quantile(0.95, sum by (le, gen_ai_request_model)
+  (rate(gen_ai_client_inference_duration_seconds_bucket[5m])))
+
+# Tokens per prompt template in the last day (where the cost goes)
+sum by (gen_ai_prompt_name, token_direction) (increase(rutaviva_llm_tokens_total[1d]))
+```
 
 **Logs.** JSON, one event per line, with the current `trace_id` and `span_id`, the same ids as in Jaeger. API errors (`application/problem+json`) and the chat's "How it was answered" panel show the `trace_id` too, so `docker compose logs api worker | grep <trace_id>` gives every log line of a request. The same lines are also in Jaeger: each one logged inside a span is added to that span as an event (open a span → "Logs"). Jaeger stores no logs of its own; stdout stays the full log.
 
@@ -183,7 +219,7 @@ DECISIONS.md    ADRs, open questions, limits, use of generative AI
 
 - **OCR:** a scanned PDF fails with `empty_pdf` ("no extractable text").
 - **Reranking:** the cross-encoder is English-only and its effect has not been recalibrated into the keyless answer rule (ADR-015).
-- **Metrics:** no OpenTelemetry metrics or dashboards (Prometheus or Grafana); quality and cost signals are span attributes and logs.
+- **Metrics:** no Prometheus/Grafana containers or alert rules; the metrics are exposed by the collector on `:8889` for any Prometheus to scrape (ADR-020).
 - **Traces from the browser:** traces start at the API.
 - **Product features:** 👍/👎 feedback on answers.
 - **Operations:** a periodic sweep of expired leases (an expired lease is taken over when the task is delivered again), a transactional outbox for enqueuing (a crash between the upload's commit and the enqueue leaves the document `pending`), Docker secrets for provider keys, and a pre-built image in a registry.

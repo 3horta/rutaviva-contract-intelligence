@@ -55,6 +55,7 @@ from dataclasses import dataclass
 from opentelemetry.trace import Span
 from sqlalchemy.orm import Session
 
+from app.core import metrics
 from app.core.config import Settings
 from app.core.errors import (
     ContentFilteredError,
@@ -72,12 +73,9 @@ from app.core.tracing import (
     DOCUMENT_ID,
     EMBEDDING_MODEL,
     GEN_AI_CONVERSATION_ID,
-    GEN_AI_INPUT_TOKENS,
     GEN_AI_OPERATION_NAME,
-    GEN_AI_OUTPUT_TOKENS,
     GEN_AI_OUTPUT_TYPE,
     GEN_AI_PROMPT_NAME,
-    GEN_AI_RESPONSE_MODEL,
     GEN_AI_RETRIEVAL_DOCUMENTS,
     GEN_AI_RETRIEVAL_TOP_K,
     GEN_AI_WORKFLOW_NAME,
@@ -95,8 +93,8 @@ from app.core.tracing import (
     WORKFLOW_CONTRACT_QA,
     current_trace_id,
     link_to,
-    model_ref,
     model_span,
+    record_usage,
     retrieved_documents,
     set_attributes,
     span,
@@ -265,6 +263,7 @@ def answer_with_usage(
         flagged = len(chunks) - len(usable)
         warnings = [WARNING_PROMPT_INJECTION] if flagged else []
         set_attributes(answer_span, **{PROMPT_INJECTION_FLAGGED: flagged})
+        metrics.record_prompt_injection(flagged, stage="query")
 
         def insufficient(reason: InsufficientReason, generation: _Generation) -> AnswerOutcome:
             return _insufficient(
@@ -321,6 +320,7 @@ def answer_with_usage(
             warnings=warnings,
             details=_details(retrieval, attempts, None, llm, started),
         )
+        metrics.record_answer("answered", None, confidence)
         return AnswerOutcome(response, generation.tokens_in, generation.tokens_out)
 
 
@@ -396,12 +396,13 @@ def _generate_validated(
             tokens_out += result.output_tokens
             notify("validating")
             outcome = validate_answer(result.text, context)
-            set_attributes(
+            # Span attributes and the GenAI token metrics, in one call.
+            record_usage(
                 llm_span,
+                input_tokens=result.input_tokens,
+                output_tokens=result.output_tokens,
+                response_model=result.model,
                 **{
-                    GEN_AI_RESPONSE_MODEL: model_ref(result.model).name,
-                    GEN_AI_INPUT_TOKENS: result.input_tokens,
-                    GEN_AI_OUTPUT_TOKENS: result.output_tokens,
                     LLM_TOKENS_ESTIMATED: result.tokens_estimated,
                     LLM_LATENCY_MS: result.latency_ms,
                     LLM_VALIDATION_ERROR: (
@@ -412,6 +413,7 @@ def _generate_validated(
         if isinstance(outcome, ValidatedAnswer):
             return _Generation(outcome.answer, attempt, tokens_in, tokens_out)
         logger.warning("llm.invalid_output", extra={"attempt": attempt, "reason": outcome.reason})
+        metrics.record_validation_failure(outcome.reason)
         feedback = outcome.detail
 
     return _Generation(None, max_attempts, tokens_in, tokens_out)
@@ -541,4 +543,5 @@ def _insufficient(
         warnings=warnings,
         details=_details(retrieval, attempts, reason, llm, started),
     )
+    metrics.record_answer("insufficient_evidence", reason, "low")
     return AnswerOutcome(response, generation.tokens_in, generation.tokens_out)

@@ -297,3 +297,14 @@ def test_text_repeated_by_the_chunk_overlap_is_quoted_once() -> None:
     answer, embeddings = _scored({PENALTY: 0.95, tail: 0.95, CAP: 0.50}, chunks)
     assert [(c.chunk_id, c.quote) for c in answer.citations] == [(first.chunk_id, PENALTY)]
     assert embeddings.embedded.count(PENALTY) == 1 and tail not in embeddings.embedded
+
+
+def test_abbreviations_and_lowercase_continuations_do_not_split_sentences() -> None:
+    text = (
+        "The PFS desk is open from 8:00 a.m. to 5:00 p.m. Central Time, Monday to Friday. "
+        "Supplier, e.g. Frontera Tire Co. Inc., shall deliver within 72 hours."
+    )
+    assert split_sentences(text) == [
+        "The PFS desk is open from 8:00 a.m. to 5:00 p.m. Central Time, Monday to Friday.",
+        "Supplier, e.g. Frontera Tire Co. Inc., shall deliver within 72 hours.",
+    ]

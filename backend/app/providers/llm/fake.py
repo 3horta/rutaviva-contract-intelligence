@@ -56,8 +56,25 @@ TRAILING_MIN_WORDS = 5
 
 
 _WORD = re.compile(r"[a-z0-9]+")
-# Sentence boundary: end punctuation followed by whitespace, or a line break.
+# Sentence boundary: end punctuation followed by whitespace, or a line break. A period
+# after a common abbreviation ("8:00 a.m. to 5:00 p.m.", "Inc.", "e.g.") is not a
+# boundary, and neither is one followed by a lowercase word: a sentence never starts so.
 _SENTENCE_END = re.compile(r"(?<=[.!?;])\s+|\n+")
+_ABBREVIATIONS = frozenset(
+    {"a.m.", "p.m.", "e.g.", "i.e.", "etc.", "inc.", "co.", "corp.", "ltd.", "no.", "nos.",
+     "u.s.", "approx.", "sec.", "art.", "vs.", "mr.", "ms.", "dr.", "st."}
+)  # fmt: skip
+
+
+def _is_boundary(text: str, boundary: re.Match[str]) -> bool:
+    if "\n" in boundary.group():
+        return True
+    following = text[boundary.end() : boundary.end() + 1]
+    if following.islower():
+        return False
+    last_word = text[: boundary.start()].rsplit(None, 1)[-1].lower() if boundary.start() else ""
+    return last_word not in _ABBREVIATIONS
+
 
 _NOT_JSON = "Sorry, I cannot produce JSON right now."
 
@@ -87,6 +104,8 @@ def split_sentences(text: str) -> list[str]:
     spans: list[tuple[int, int]] = []
     start = 0
     for boundary in _SENTENCE_END.finditer(text):
+        if not _is_boundary(text, boundary):
+            continue
         spans.append((start, boundary.start()))
         start = boundary.end()
     spans.append((start, len(text)))

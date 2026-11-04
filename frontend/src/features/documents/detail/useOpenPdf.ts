@@ -7,8 +7,8 @@ import { documentKeys } from "../queries";
 const REVOKE_AFTER_MS = 60_000;
 
 /**
- * "Open PDF": the file needs the auth header, so it is fetched (or taken from
- * the cache the viewer filled) and opened as a blob URL in a new tab.
+ * "Open PDF" and "Download": the file needs the auth header, so it is fetched (or taken
+ * from the cache the viewer filled) as a blob URL, then opened in a new tab or saved.
  */
 export function useOpenPdf(documentId: string) {
   const queryClient = useQueryClient();
@@ -23,26 +23,53 @@ export function useOpenPdf(documentId: string) {
     return () => created.forEach((url) => URL.revokeObjectURL(url));
   }, []);
 
-  const open = useCallback(async () => {
+  /** Fetch the file once (cached) and return a short-lived blob URL for it. */
+  const blobUrl = useCallback(async () => {
+    const buffer = await queryClient.fetchQuery({
+      queryKey: documentKeys.file(documentId),
+      queryFn: ({ signal }) => getDocumentFile(documentId, signal),
+      staleTime: Infinity,
+    });
+    const url = URL.createObjectURL(new Blob([buffer], { type: "application/pdf" }));
+    urls.current.push(url);
+    window.setTimeout(() => URL.revokeObjectURL(url), REVOKE_AFTER_MS);
+    return url;
+  }, [documentId, queryClient]);
+
+  const run = useCallback(async (action: (url: string) => void) => {
     setPending(true);
     setError(null);
     try {
-      const buffer = await queryClient.fetchQuery({
-        queryKey: documentKeys.file(documentId),
-        queryFn: ({ signal }) => getDocumentFile(documentId, signal),
-        staleTime: Infinity,
-      });
-      const url = URL.createObjectURL(new Blob([buffer], { type: "application/pdf" }));
-      urls.current.push(url);
-      window.setTimeout(() => URL.revokeObjectURL(url), REVOKE_AFTER_MS);
-      const tab = window.open(url, "_blank");
-      setBlockedUrl(tab ? null : url);
+      action(await blobUrl());
     } catch (caught) {
       setError(caught);
     } finally {
       setPending(false);
     }
-  }, [documentId, queryClient]);
+  }, [blobUrl]);
 
-  return { open, pending, error, blockedUrl };
+  const open = useCallback(
+    () =>
+      run((url) => {
+        const tab = window.open(url, "_blank");
+        setBlockedUrl(tab ? null : url);
+      }),
+    [run],
+  );
+
+  /** Save the file under its original name (a temporary link with `download`). */
+  const download = useCallback(
+    (filename: string) =>
+      run((url) => {
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = filename;
+        document.body.append(link);
+        link.click();
+        link.remove();
+      }),
+    [run],
+  );
+
+  return { open, download, pending, error, blockedUrl };
 }

@@ -3,6 +3,8 @@
 import logging
 import math
 import uuid
+from functools import lru_cache
+from pathlib import Path
 
 from app.core import tracing
 from app.core.config import get_settings
@@ -14,6 +16,19 @@ from app.worker.celery_app import TASK_PROCESS_DOCUMENT, celery_app
 logger = logging.getLogger(__name__)
 
 
+@lru_cache
+def _extractor(name: str, artifacts_path: Path | None):
+    """One extractor per worker process. For Docling it matters: building it loads the
+    layout model (seconds), so a new one per task would reload it for every PDF."""
+    if name == "docling":
+        from app.ingestion.extract import DoclingExtractor
+
+        return DoclingExtractor(artifacts_path)
+    from app.ingestion.pdfplumber_extract import PdfPlumberExtractor
+
+    return PdfPlumberExtractor()
+
+
 def build_deps() -> IngestionDeps:
     """Real dependencies, built on first use inside the worker process.
 
@@ -21,7 +36,6 @@ def build_deps() -> IngestionDeps:
     when a task actually runs. Tests replace this function.
     """
     from app.db.session import session_factory_for
-    from app.ingestion.extract import DoclingExtractor
     from app.ingestion.storage import LocalDiskStorage
     from app.providers import get_embeddings
 
@@ -29,7 +43,7 @@ def build_deps() -> IngestionDeps:
     return IngestionDeps(
         session_factory=session_factory_for(settings.database_url),
         storage=LocalDiskStorage(settings.files_dir),
-        extractor=DoclingExtractor(settings.docling_artifacts_path),
+        extractor=_extractor(settings.text_extractor, settings.docling_artifacts_path),
         embeddings=get_embeddings(settings),
         settings=settings,
     )

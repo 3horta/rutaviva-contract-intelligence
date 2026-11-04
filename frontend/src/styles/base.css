@@ -62,6 +62,13 @@ code {
   border: 0;
 }
 
+/* Chrome that a printed page does not need (navigation, buttons, inputs). */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
+
 @keyframes rv-spin {
   to {
     transform: rotate(360deg);

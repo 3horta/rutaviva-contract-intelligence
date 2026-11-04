@@ -8,12 +8,20 @@ are collected at the end once the related milestones are done.
 | # | Decision | Status |
 |---|---|---|
 | [ADR-001](#adr-001--no-paid-keys-by-default-fail-fast-configuration) | No paid keys by default, fail-fast configuration | Accepted |
-| [ADR-007](#adr-007--embeddings-a-real-local-model-at-runtime-a-simulated-one-in-tests) | Embeddings: a real local model at runtime, a simulated one in tests | Accepted |
 | [ADR-002](#adr-002--tenant-isolation-column-filter-plus-forced-rls) | Tenant isolation: column filter plus forced RLS | Accepted |
 | [ADR-003](#adr-003--duplicates-the-same-pdf-is-never-live-twice-in-a-tenant) | Duplicates: the same PDF is never live twice in a tenant | Accepted |
-| [ADR-004](#adr-004--no-document-is-left-stuck-in-processing) | No document is left stuck in `processing` | Accepted (schema done; task logic in progress) |
+| [ADR-004](#adr-004--no-document-is-left-stuck-in-processing) | No document is left stuck in `processing` | Accepted |
 | [ADR-005](#adr-005--closed-set-of-failure-codes) | Closed set of failure codes | Accepted |
 | [ADR-006](#adr-006--ci-fails-instead-of-skipping-the-database-tests) | CI fails instead of skipping the database tests | Accepted |
+| [ADR-007](#adr-007--embeddings-a-real-local-model-at-runtime-a-simulated-one-in-tests) | Embeddings: a real local model at runtime, a simulated one in tests | Accepted |
+| [ADR-008](#adr-008--text-extraction-pdfplumber-by-default-docling-optional) | Text extraction: pdfplumber by default, Docling optional | Accepted |
+| [ADR-009](#adr-009--cpu-inference-load-models-once-bound-the-threads) | CPU inference: load models once, bound the threads | Accepted |
+| [ADR-010](#adr-010--chat-backend-streamed-phases-persisted-turns-resolved-follow-ups) | Chat backend: streamed phases, persisted turns, resolved follow-ups | Accepted |
+| [ADR-F01](#adr-f01--chat-sse-read-with-fetch-the-server-as-the-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
+| [ADR-F02](#adr-f02--ci-runs-the-frontend-checks-in-their-own-job) | CI runs the frontend checks in their own job | Accepted |
+| [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
+| [ADR-F04](#adr-f04--a-strict-content-security-policy-for-the-web-app) | A strict Content-Security-Policy for the web app | Accepted |
+| [ADR-F05](#adr-f05--frontend-types-generated-from-a-committed-openapi-document) | Frontend types generated from a committed OpenAPI document | Accepted |
 
 ---
 
@@ -112,3 +120,110 @@ are collected at the end once the related milestones are done.
   - `tests/contract/test_fake_embeddings.py`: dimension, unit norm, similarity and determinism across processes with different hash seeds.
   - `tests/contract/test_local_embeddings.py`, run in CI with `REQUIRE_ML=1`: dimension, norm, same vector twice, and a paraphrase that beats unrelated text.
   - Retrieval quality with the real model: the verification question set (`make eval`).
+
+## ADR-008 · Text extraction: pdfplumber by default, Docling optional
+
+- **Context:** the brief suggests Docling, and it was the first choice (layout model, reading order, table structure, element coordinates). Measured on the target machine (Docker with 4 CPUs and 4 GB), with the model loaded once and the table-structure stage off, it still took **~70 s per page**: a 4-page sample contract needed 292 s just to convert, beyond the 240 s task soft limit.
+- **Decision:**
+  - `TEXT_EXTRACTOR=pdfplumber` is the default. It reads the PDF text layer with coordinates: **~1 s for a 3-page contract**, no models, on every platform.
+  - Lines in the top/bottom page margins (running headers and footers) are dropped.
+  - Blocks split at paragraph gaps, numbered clauses and headings (short all-caps lines or SECTION/ARTICLE/EXHIBIT…), which chunking uses as the section name.
+  - `TEXT_EXTRACTOR=docling` keeps Docling, models baked into the image, OCR off.
+- **Rejected:**
+  - **Docling by default with higher time limits:** minutes per document for whoever runs the demo.
+  - **Raising the default limits for everyone:** hides the cost instead of choosing.
+- **Consequences:**
+  - Contracts with complex layouts (multi-column, real tables) are extracted in text order without table structure, a known limit.
+  - Scans still end `empty_pdf`, because there is no OCR.
+  - pypdfium2 (a pdfplumber dependency) is pinned to the newest release with a macOS 12 Intel wheel.
+- **Verified by:** `tests/unit/test_pdfplumber_extract.py`: page counts of every sample, a known clause on its page with a top-left box, headers and footers dropped, headings detected, corrupt → `corrupt_pdf`, scan → `empty_pdf`. These run on any machine. The Docling tests run in Linux/CI (`REQUIRE_DOCLING=1`).
+
+## ADR-009 · CPU inference: load models once, bound the threads
+
+- **Context:** the first end-to-end runs on the target machine were slow, and part of it was avoidable:
+  - two concurrent first requests both loaded the embedding model;
+  - the worker built a new Docling extractor for every task, reloading the layout model for every PDF;
+  - PyTorch uses every core in every process by default, so the API and the worker fought for the same 4 CPUs.
+- **Decision:**
+  - The embedding model is created under a lock, once per process.
+  - The extractor is cached per worker process.
+  - `OMP_NUM_THREADS`/`MKL_NUM_THREADS` = 2 for the API and 2 for the worker (`API_TORCH_THREADS`, `WORKER_TORCH_THREADS`).
+  - Worker concurrency is 1 (`WORKER_CONCURRENCY`): CPU-bound tasks in parallel only slow each other down.
+- **Rejected:** more worker processes, which oversubscribe the CPU.
+- **Known limit:** the keyless "LLM" ranks the sentences of the retrieved chunks with the embedding model at query time, so answers take seconds to tens of seconds on a small CPU. Embedding sentences at indexing time is the next step if it matters.
+
+## ADR-010 · Chat backend: streamed phases, persisted turns, resolved follow-ups
+
+- **Context:** the chat needs streaming, a history per conversation and follow-up questions ("and the cap?") that only make sense with the previous turn. No answer text may be shown before it is validated.
+- **Decision:**
+  - **Stream:** `POST /query/stream` (SSE) sends `conversation`, then `phase` events (`contextualizing` when there is history, then `searching`, `drafting`, `validating`), then a single validated `result`, or an `error` with the Problem Details shape. Auth, validation and a foreign `conversation_id` fail before the stream starts, with normal HTTP status codes.
+  - **Persistence:** the question and the answer are saved together, atomically, after a valid answer (answered or insufficient evidence). Provider failures save nothing. `retry` replaces the last turn in the same transaction, and a row lock keeps sequence numbers consecutive under concurrency.
+  - **Follow-ups:** before retrieval, a question resolver rewrites the question as standalone using the last 3 turns.
+    - With a real LLM, an LLM-based resolver. Earlier turns are delimited as data, and any failure leaves the question unchanged, so a conversation never makes a query fail.
+    - In keyless mode, a deterministic rule: a question with ≤ 2 content words, or starting with a connector or pronoun, is searched together with the previous standalone question.
+    - The interpreted question is stored and shown in "How it was answered".
+  - **`details`** of each answer: the retrieved chunks (file, page, score, branch that found them), hits per branch, attempts, model, latency and `trace_id`. Never document content.
+- **Rejected:**
+  - Streaming LLM tokens, which would show unvalidated text.
+  - Answering follow-ups without context: "and the cap?" alone retrieves noise.
+  - A separate query-log table: the assistant message carries the metadata, and the trace has the detail.
+- **Verified by:** `tests/integration/test_conversations_api.py`: event order, error event with nothing persisted, errors before the stream, persistence, retry, follow-up retrieval, and 404 for another tenant's conversation everywhere. Also `tests/unit/test_resolver.py`.
+
+## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
+
+- **Context:** answers arrive as Server-Sent Events from `POST /query/stream`. `EventSource` can only GET and cannot send the `Authorization` header.
+- **Decision:**
+  - `src/api/queryStream.ts` POSTs with `fetch`, reads the `ReadableStream` and parses the `event:`/`data:` blocks itself (CRLF, split chunks, comments, unknown events ignored). It resolves with the `result`, rejects with an `ApiError` on an `error` event or a stream that ends without either. The UI never sees SSE details.
+  - The server is the source of truth: a finished answer is written into the cached conversation (TanStack Query) exactly as stored; only the turn in progress lives in component state (`useChat`).
+  - `/chat/:conversationId?` is one route, so the page stays mounted when a new chat gets its id (`navigate(..., { replace: true })` on the `conversation` event).
+  - Stop aborts the fetch. The backend keeps working and stores the turn if it completes, so the page reloads the conversation 1.5 s later and replaces the "stopped" note if the turn was saved.
+  - Answers are rendered from a parsed Markdown subset (paragraphs, lists, bold, inline code) as React elements; `dangerouslySetInnerHTML` stays banned by lint.
+  - Leaving the page or switching tenant aborts the stream (the page is remounted per tenant; the query cache is cleared).
+- **Rejected:** a global chat store that keeps answering after leaving the page (as the reference does): more state for little gain, since the backend stores the turn anyway.
+- **Left out:** feedback buttons, suggested follow-ups, dictation and charts: the backend has no support for them.
+- **Verified by:** `queryStream.test.ts` (split chunks, several events per chunk, CRLF, missing result, error event), `markdown.test.ts`, `grouping.test.ts`.
+
+## ADR-F02 · CI runs the frontend checks in their own job
+
+- **Decision:** a `frontend` job on Node 22 (the version of the Docker build), with the npm cache keyed on `frontend/package-lock.json`: `npm ci` → lint → typecheck → tests → build. It runs in parallel with the backend job and does not need a database or a running API (the tests use the in-memory mock API).
+- **Consequence:** a broken build or a type error fails the PR even when only backend code changed in the same push.
+
+## ADR-F03 · Route errors keep the shell
+
+- **Decision:** two `errorElement`s. One on a pathless route that wraps every page, so a page that throws shows `RouteErrorPage` inside the shell and the sidebar keeps working. One on the root, for when the shell itself fails. A `404` route response reads "Page not found"; anything else reads "Something went wrong", with "Back to the dashboard" and "Reload". The error goes to the console only in development; users never see a stack trace.
+- The routes live in `src/routes.tsx`, shared by the browser router and the tests' memory router.
+
+## ADR-F04 · A strict Content-Security-Policy for the web app
+
+- **Decision:** nginx sends, on every app page (`location /`): `default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data: blob:; worker-src 'self' blob:; connect-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'`, plus `Permissions-Policy: camera=(), microphone=(), geolocation=()`. There is no `'unsafe-inline'` and no `'unsafe-eval'`.
+- **The inline theme script** (it sets the theme before the first paint, so dark mode never flashes light) moved to `public/theme-init.js`, a blocking `<script src>` served from `'self'`. A sha256 hash would also work, but it breaks silently every time someone edits the script. A file has no such trap.
+- **Relaxations, each one needed:**
+  - `img-src data: blob:`: PDF.js paints page images from data and blob URLs.
+  - `worker-src blob:`: PDF.js may start its worker from a blob URL. The worker file itself is same-origin (`/assets/pdf.worker…mjs`).
+- **Why nothing else is needed:**
+  - React sets `style` through the CSSOM (`element.style.x = …`), which `style-src 'self'` allows. Only `style="…"` written in HTML markup and `<style>` elements are blocked, and the build emits neither.
+  - PDF.js probes for `eval` (`new Function("")`) only when `isEvalSupported` is on. The viewer turns it off.
+  - The headers are added in `location /` because nginx's `add_header` in a location replaces the server-level ones. The JSON API responses do not need a CSP.
+- **Proxy re-resolves the API:**
+  - A literal `proxy_pass http://api:8000` is resolved once at startup. After the api container is recreated (new IP), nginx answered 502 until restarted.
+  - `proxy_pass` now takes a variable, resolved per request through Docker's DNS (`resolver 127.0.0.11 valid=10s`).
+  - An explicit `rewrite` strips `/api`, since a variable `proxy_pass` no longer does it. The SSE location stays unbuffered.
+- **Verified by:**
+  - `curl -I` on the built image (`docker build -f frontend/Dockerfile`, run on the Compose network) shows both headers.
+  - The built `index.html` has no inline `<script>` or `<style>`.
+  - Headless Chrome loads the pages with no CSP violations in the console.
+  - A full click-through in a scripted browser (viewer, chat stream) was not possible here: the browser container could not reach the npm registry. That check is listed as pending.
+
+## ADR-F05 · Frontend types generated from a committed OpenAPI document
+
+- **Context:** the frontend types were written by hand, so a backend change could only show up at runtime.
+- **Decision:**
+  - The API's OpenAPI document is committed as `frontend/openapi.json`.
+  - `npm run gen:types` (openapi-typescript 7.8.0) turns it into `src/api/schema.d.ts`.
+  - `src/api/types.ts` keeps the names the app uses and derives them from that schema (`DocumentOut = components["schemas"]["DocumentOut"]`, …). A contract change therefore surfaces as type errors where it matters.
+  - Still written by hand: what OpenAPI cannot describe (the SSE events, Problem Details) and one refinement (the bbox is a 4-tuple, the schema says `number[]`).
+- **Why a committed file and not the live `/openapi.json`:**
+  - CI and fresh clones need no running backend, database or ML stack.
+  - Every contract change shows up as a reviewable diff in the PR.
+- **Regenerating:** with the API running, `curl -s http://localhost:8000/openapi.json | python3 -m json.tool --indent 2 > frontend/openapi.json`, then `npm run gen:types` in `frontend/`. Without a running API, the same JSON comes from `create_app().openapi()` in the backend environment (it needs `JWT_SECRET` set).
+- **CI:** the frontend job re-runs `gen:types` and fails if `schema.d.ts` differs from what the committed `openapi.json` produces. It does not check `openapi.json` against the backend code: that needs the backend's Python environment, which is the backend job's (out of this change's scope). That check is listed as debt.

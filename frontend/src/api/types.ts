@@ -1,39 +1,25 @@
 /**
- * Types of the backend contract. Written by hand for now; to be replaced by
- * the output of openapi-typescript once the OpenAPI schema is stable.
+ * Types of the backend contract, derived from `schema.d.ts`, which
+ * openapi-typescript generates from the API's OpenAPI document
+ * (`npm run gen:types`; see the Frontend section of the README). The names the
+ * app uses stay here, so a schema change shows up as a type error where it matters.
+ *
+ * Hand-written only what the OpenAPI document cannot describe: the events of
+ * the SSE stream, Problem Details, and a few refinements (the bbox tuple).
  */
+import type { components } from "./schema";
 
-export type DocumentStatus = "pending" | "processing" | "ready" | "failed";
+type Schemas = components["schemas"];
 
-export type FailureCode =
-  | "corrupt_pdf"
-  | "empty_pdf"
-  | "embedding_unavailable"
-  | "timeout"
-  | "worker_lost"
-  | "internal_error";
+/* Documents */
 
-export interface DocumentMetrics {
-  processing_ms: number;
-  embedding_calls: number;
-  embedding_tokens: number;
-  /** True when the provider did not report usage and the count was estimated. */
-  tokens_estimated: boolean;
-}
-
-export interface DocumentOut {
-  id: string;
-  filename: string;
-  status: DocumentStatus;
-  failure_code: FailureCode | null;
-  failure_detail: string | null;
-  page_count: number | null;
-  chunk_count: number | null;
-  embedding_model: string | null;
-  metrics: DocumentMetrics | null;
-  created_at: string;
-  updated_at: string;
-}
+export type DocumentOut = Schemas["DocumentOut"];
+export type DocumentStatus = DocumentOut["status"];
+export type FailureCode = NonNullable<DocumentOut["failure_code"]>;
+export type DocumentMetrics = Schemas["DocumentMetrics"];
+export type DocumentList = Schemas["DocumentList"];
+export type DocumentStats = Schemas["DocumentStats"];
+export type UploadResponse = Schemas["UploadResponse"];
 
 export const DOCUMENT_ORDERINGS = [
   "created_at",
@@ -54,38 +40,11 @@ export interface DocumentListQuery {
   status?: DocumentStatus;
 }
 
-export interface DocumentList {
-  count: number;
-  limit: number;
-  offset: number;
-  results: DocumentOut[];
-}
-
-export interface DocumentStats {
-  total: number;
-  by_status: Record<DocumentStatus, number>;
-}
-
-export interface UploadResponse {
-  document_id: string;
-  status: DocumentStatus;
-  duplicate: boolean;
-}
-
 /** [x0, top, x1, bottom] in PDF points, origin at the top-left of the page. */
 export type BBox = [number, number, number, number];
 
-export interface ChunkOut {
-  id: string;
-  document_id: string;
-  page: number;
-  chunk_index: number;
-  content: string;
-  bbox: BBox | null;
-  /** Size in PDF points of the page the bbox was measured on; null if unknown. */
-  page_width: number | null;
-  page_height: number | null;
-}
+/** The schema says `number[]`; the API always sends four numbers. */
+export type ChunkOut = Omit<Schemas["ChunkOut"], "bbox"> & { bbox: BBox | null };
 
 /** RFC 9457 Problem Details, as every error of the API is returned. */
 export interface ProblemDetails {
@@ -94,4 +53,49 @@ export interface ProblemDetails {
   status: number;
   detail?: string;
   trace_id?: string;
+}
+
+/* Questions and conversations */
+
+export type QueryRequest = Schemas["QueryRequest"];
+export type QueryResponse = Schemas["QueryResponse"];
+export type AnswerStatus = QueryResponse["status"];
+export type Confidence = QueryResponse["confidence"];
+export type Citation = Schemas["Citation"];
+export type RetrievedChunk = Schemas["RetrievedChunkOut"];
+export type FoundBy = RetrievedChunk["found_by"];
+/** How an answer was produced: shown under "How it was answered". */
+export type AnswerDetails = Schemas["AnswerDetails"];
+export type InsufficientReason = NonNullable<AnswerDetails["insufficient_reason"]>;
+
+export type ConversationSummary = Schemas["ConversationSummary"];
+export type ConversationList = Schemas["ConversationList"];
+/** A stored message. Answer-only fields are null (or empty) on a question. */
+export type ConversationMessage = Schemas["MessageOut"];
+export type ConversationDetail = Schemas["ConversationOut"];
+
+export interface ConversationListQuery {
+  limit: number;
+  offset: number;
+  search?: string;
+}
+
+/** The fixed text of an answer the documents do not support. */
+export const INSUFFICIENT_EVIDENCE_ANSWER =
+  "There is not enough information in your documents to answer this question.";
+
+/* Events of POST /query/stream (not described by the OpenAPI document). */
+
+/** "contextualizing" only comes on follow-ups, before "searching". */
+export type QueryPhase = "contextualizing" | "searching" | "drafting" | "validating";
+
+/** First event of a stream: the conversation the answer belongs to. */
+export interface ConversationStarted {
+  conversation_id: string;
+  title: string;
+}
+
+export interface PhaseUpdate {
+  phase: QueryPhase;
+  label: string;
 }

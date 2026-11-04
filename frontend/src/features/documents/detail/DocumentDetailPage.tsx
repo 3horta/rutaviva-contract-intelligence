@@ -1,6 +1,7 @@
 import {
   Clock,
   Cpu,
+  Download,
   ExternalLink,
   FileSearch,
   Hash,
@@ -115,11 +116,18 @@ function DocumentDetail({ doc }: { doc: DocumentOut }) {
             >
               Open PDF
             </Button>
+            <Button
+              onClick={() => void openPdf.download(doc.filename)}
+              disabled={openPdf.pending}
+              icon={<Download size={16} aria-hidden="true" />}
+            >
+              Download
+            </Button>
           </>
         }
       />
 
-      {openPdf.error != null && <ErrorAlert error={openPdf.error} title="Could not open the PDF" />}
+      {openPdf.error != null && <ErrorAlert error={openPdf.error} title="Could not get the PDF" />}
       {openPdf.blockedUrl && (
         <Alert tone="info" title="The browser blocked the new tab">
           <a href={openPdf.blockedUrl} target="_blank" rel="noreferrer">

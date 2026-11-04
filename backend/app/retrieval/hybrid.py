@@ -66,9 +66,6 @@ class RetrievedChunk:
 # the index may hand back `hnsw.ef_search` (default 40) neighbours that mostly belong to
 # other tenants, so the vector branch can return FEWER than `:candidates` rows even when
 # the tenant has more chunks. It never returns another tenant's rows, only fewer.
-# TODO(isolation milestone): measure with EXPLAIN (also whether RLS blocks the index,
-# ADR-002) and choose between pgvector's iterative scans (`hnsw.iterative_scan`), a
-# higher `ef_search`, or per-tenant partial indexes.
 _HYBRID_SQL = text(
     f"""
 WITH

@@ -283,8 +283,8 @@ class Message(Base):
     standalone_question: Mapped[str | None] = mapped_column(Text)
     status: Mapped[str | None] = mapped_column(Text)
     confidence: Mapped[str | None] = mapped_column(Text)
-    # Copy of each citation ({chunk_id, document_id, page, quote}): stays readable
-    # even if the document is reindexed and its chunks replaced.
+    # Copy of each citation ({chunk_id, document_id, document_filename, page, quote}):
+    # stays readable even if the document is reindexed and its chunks replaced.
     citations: Mapped[list[dict[str, Any]]] = mapped_column(
         JSONB, default=list, server_default="[]"
     )
@@ -294,6 +294,9 @@ class Message(Base):
     tokens_in: Mapped[int | None]
     tokens_out: Mapped[int | None]
     trace_id: Mapped[str | None] = mapped_column(Text)
+    # How the answer was produced (`AnswerDetails`: retrieved chunk ids, scores, hit
+    # counts, attempts, insufficient reason). Ids and numbers only, never content.
+    details: Mapped[dict[str, Any] | None] = mapped_column(JSONB)
     created_at: Mapped[datetime] = _created_at()
 
     conversation: Mapped[Conversation] = relationship(back_populates="messages")

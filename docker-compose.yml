@@ -85,6 +85,10 @@ services:
     environment:
       <<: *backend-env
       OTEL_SERVICE_NAME: rutaviva-api
+      # PyTorch uses every core by default in every process; API and worker then fight
+      # for the CPU. Two threads each keeps a 4-CPU machine responsive.
+      OMP_NUM_THREADS: ${API_TORCH_THREADS:-2}
+      MKL_NUM_THREADS: ${API_TORCH_THREADS:-2}
     env_file: *backend-env-file
     ports:
       - "127.0.0.1:${API_HOST_PORT:-8000}:8000"
@@ -101,10 +105,14 @@ services:
 
   worker:
     build: *backend-build
-    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel", "INFO", "--concurrency", "2"]
+    # One document at a time, with a bounded number of threads: Docling and the embedding
+    # model are CPU-bound, so more parallel tasks would only slow each other down.
+    command: ["celery", "-A", "app.worker.celery_app", "worker", "--loglevel", "INFO", "--concurrency", "${WORKER_CONCURRENCY:-1}"]
     environment:
       <<: *backend-env
       OTEL_SERVICE_NAME: rutaviva-worker
+      OMP_NUM_THREADS: ${WORKER_TORCH_THREADS:-2}
+      MKL_NUM_THREADS: ${WORKER_TORCH_THREADS:-2}
     env_file: *backend-env-file
     volumes:
       - files:/data/files

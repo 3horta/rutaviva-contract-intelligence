@@ -14,6 +14,7 @@ are collected at the end once the related milestones are done.
 | [ADR-004](#adr-004--no-document-is-left-stuck-in-processing) | No document is left stuck in `processing` | Accepted (schema done; task logic in progress) |
 | [ADR-005](#adr-005--closed-set-of-failure-codes) | Closed set of failure codes | Accepted |
 | [ADR-006](#adr-006--ci-fails-instead-of-skipping-the-database-tests) | CI fails instead of skipping the database tests | Accepted |
+| [ADR-F01](#adr-f01--chat-sse-read-with-fetch-server-as-source-of-truth) | Chat: SSE read with fetch, the server as the source of truth | Accepted |
 
 ---
 
@@ -112,3 +113,17 @@ are collected at the end once the related milestones are done.
   - `tests/contract/test_fake_embeddings.py`: dimension, unit norm, similarity and determinism across processes with different hash seeds.
   - `tests/contract/test_local_embeddings.py`, run in CI with `REQUIRE_ML=1`: dimension, norm, same vector twice, and a paraphrase that beats unrelated text.
   - Retrieval quality with the real model: the verification question set (`make eval`).
+
+## ADR-F01 · Chat: SSE read with fetch, the server as the source of truth
+
+- **Context:** answers arrive as Server-Sent Events from `POST /query/stream`. `EventSource` can only GET and cannot send the `Authorization` header.
+- **Decision:**
+  - `src/api/queryStream.ts` POSTs with `fetch`, reads the `ReadableStream` and parses the `event:`/`data:` blocks itself (CRLF, split chunks, comments, unknown events ignored). It resolves with the `result`, rejects with an `ApiError` on an `error` event or a stream that ends without either. The UI never sees SSE details.
+  - The server is the source of truth: a finished answer is written into the cached conversation (TanStack Query) exactly as stored; only the turn in progress lives in component state (`useChat`).
+  - `/chat/:conversationId?` is one route, so the page stays mounted when a new chat gets its id (`navigate(..., { replace: true })` on the `conversation` event).
+  - Stop aborts the fetch. The backend keeps working and stores the turn if it completes, so the page reloads the conversation 1.5 s later and replaces the "stopped" note if the turn was saved.
+  - Answers are rendered from a parsed Markdown subset (paragraphs, lists, bold, inline code) as React elements; `dangerouslySetInnerHTML` stays banned by lint.
+  - Leaving the page or switching tenant aborts the stream (the page is remounted per tenant; the query cache is cleared).
+- **Rejected:** a global chat store that keeps answering after leaving the page (as the reference does): more state for little gain, since the backend stores the turn anyway.
+- **Left out:** feedback buttons, suggested follow-ups, dictation and charts: the backend has no support for them.
+- **Verified by:** `queryStream.test.ts` (split chunks, several events per chunk, CRLF, missing result, error event), `markdown.test.ts`, `grouping.test.ts`.

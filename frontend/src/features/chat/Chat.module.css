@@ -1,0 +1,162 @@
+/* History on the left, the open conversation on the right, both the height of the screen. */
+.layout {
+  --chat-height: max(480px, calc(100vh - var(--rv-topbar-height) - 48px));
+
+  display: grid;
+  grid-template-columns: 270px minmax(0, 1fr);
+  gap: 16px;
+  height: var(--chat-height);
+}
+
+.chat {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: var(--rv-surface);
+  border: 1px solid var(--rv-border);
+  border-radius: var(--rv-radius-lg);
+}
+
+.header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 54px;
+  padding: 8px 12px 8px 22px;
+  border-bottom: 1px solid var(--rv-border);
+}
+
+.title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 0.98rem;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.headerActions {
+  display: flex;
+  gap: 2px;
+}
+
+.headerActions button {
+  color: var(--rv-muted);
+}
+
+.banner {
+  padding: 12px 22px 0;
+}
+
+.thread {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+  padding: 24px 22px;
+  overflow-y: auto;
+}
+
+/* The empty state sits in the middle of the thread. */
+.thread > :only-child {
+  margin: auto;
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+  max-width: 620px;
+  margin-top: 10px;
+}
+
+.example {
+  padding: 7px 13px;
+  border: 1px solid var(--rv-border);
+  border-radius: 999px;
+  background: var(--rv-surface);
+  color: var(--rv-text-soft);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.example:hover {
+  border-color: var(--rv-primary);
+  color: var(--rv-primary);
+}
+
+.composer {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  padding: 12px 22px 16px;
+  border-top: 1px solid var(--rv-border);
+}
+
+.composerInput {
+  flex: 1;
+  min-width: 0;
+  min-height: 40px;
+  padding: 9px 12px;
+  border: 1px solid var(--rv-input-border);
+  border-radius: var(--rv-radius);
+  background: var(--rv-surface);
+  color: var(--rv-text);
+  line-height: 1.4;
+  resize: none;
+  outline: none;
+}
+
+.composerInput:focus {
+  border-color: var(--rv-primary);
+  box-shadow: 0 0 0 3px var(--rv-focus-ring);
+}
+
+.composerInput:disabled {
+  background: var(--rv-surface-sunken);
+  cursor: not-allowed;
+}
+
+.composer button {
+  width: 40px;
+  min-height: 40px;
+}
+
+@media (max-width: 900px) {
+  .layout {
+    --chat-height: max(420px, calc(100vh - var(--rv-topbar-height) - 32px));
+
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto minmax(0, 1fr);
+    gap: 12px;
+  }
+
+  .thread,
+  .composer {
+    padding-inline: 14px;
+  }
+}
+
+/* Printing: the conversation only, at its full length. */
+@media print {
+  .layout {
+    display: block;
+    height: auto;
+  }
+
+  .chat {
+    overflow: visible;
+    border: 0;
+  }
+
+  .thread {
+    overflow: visible;
+    padding: 12px 0;
+  }
+}

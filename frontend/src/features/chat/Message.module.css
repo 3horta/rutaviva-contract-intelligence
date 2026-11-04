@@ -1,0 +1,287 @@
+/* A question: a bubble on the right. */
+.userRow {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.question {
+  max-width: min(80%, 640px);
+  margin: 0;
+  padding: 9px 14px;
+  border-radius: 16px 16px 4px 16px;
+  background: var(--rv-primary-soft);
+  color: var(--rv-text);
+  font-weight: 600;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+/* An answer: a card on the left. */
+.answer {
+  display: grid;
+  gap: 12px;
+  max-width: 860px;
+  padding: 16px 18px;
+  border: 1px solid transparent;
+  border-radius: 4px 16px 16px 16px;
+  background: var(--rv-surface-alt);
+}
+
+.answer > :global(div[role="alert"]) {
+  margin: 0;
+}
+
+/* Not enough evidence: a different colour and a title, never mistaken for an answer. */
+.insufficient {
+  border-color: var(--rv-warning);
+  border-style: dashed;
+  background: var(--rv-warning-soft);
+}
+
+.insufficientTitle {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 0;
+  color: var(--rv-warning);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.markdown {
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+
+.markdown > :first-child {
+  margin-top: 0;
+}
+
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+
+.markdown p,
+.markdown ul,
+.markdown ol {
+  margin: 0 0 10px;
+}
+
+.markdown ul,
+.markdown ol {
+  padding-left: 22px;
+}
+
+.markdown li + li {
+  margin-top: 4px;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.warnings {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  color: var(--rv-warning);
+  font-size: 0.82rem;
+}
+
+.warnings li {
+  display: flex;
+  gap: 7px;
+  align-items: flex-start;
+}
+
+.warnings svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+/* Sources */
+.sources {
+  display: grid;
+  gap: 6px;
+}
+
+.sourcesTitle {
+  margin: 0;
+  color: var(--rv-muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.citations {
+  display: grid;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A chip that opens the cited page with the fragment highlighted. */
+.citation {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  padding: 4px 10px;
+  border: 1px solid var(--rv-primary-soft-border);
+  border-radius: 999px;
+  background: var(--rv-surface);
+  color: var(--rv-primary);
+  font-size: 0.78rem;
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+
+.citation svg {
+  flex: none;
+}
+
+.citation:hover {
+  background: var(--rv-primary-soft);
+}
+
+.quote {
+  margin: 4px 0 0;
+  padding: 2px 0 2px 12px;
+  border-left: 3px solid var(--rv-primary-soft-border);
+  color: var(--rv-text-soft);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+
+/* How it was answered */
+.details {
+  color: var(--rv-text-soft);
+  font-size: 0.82rem;
+}
+
+.details summary {
+  width: fit-content;
+  color: var(--rv-muted);
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.details[open] summary {
+  margin-bottom: 10px;
+}
+
+.interpreted {
+  margin: 0 0 8px;
+  font-style: italic;
+}
+
+.steps {
+  display: grid;
+  gap: 4px;
+  margin: 0 0 12px;
+  padding-left: 20px;
+}
+
+.tableWrap {
+  overflow-x: auto;
+  margin-bottom: 12px;
+}
+
+.retrieved {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.78rem;
+}
+
+.retrieved th,
+.retrieved td {
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--rv-border);
+  text-align: left;
+  white-space: nowrap;
+}
+
+.retrieved th {
+  color: var(--rv-muted);
+  font-weight: 650;
+}
+
+.retrieved td:first-child {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 22px;
+  margin: 0;
+}
+
+.facts dt {
+  color: var(--rv-muted);
+  font-size: 0.72rem;
+}
+
+.facts dd {
+  margin: 2px 0 0;
+  overflow-wrap: anywhere;
+}
+
+.actions {
+  display: flex;
+  gap: 2px;
+  margin: -4px 0 -8px -6px;
+}
+
+.actions button {
+  color: var(--rv-muted);
+}
+
+/* While writing */
+.progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--rv-text-soft);
+  font-size: 0.86rem;
+}
+
+.progress > span:first-child {
+  color: var(--rv-primary);
+}
+
+.progressBar {
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--rv-border);
+}
+
+.progressBar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--rv-primary);
+  transition: width 0.4s ease;
+}
+
+.interrupted {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: var(--rv-muted);
+  font-size: 0.82rem;
+  font-style: italic;
+}

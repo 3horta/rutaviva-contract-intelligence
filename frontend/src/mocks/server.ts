@@ -15,6 +15,17 @@ import type {
 } from "../api/types";
 import { DOCUMENT_ORDERINGS } from "../api/types";
 import { decodeClaims, isExpired } from "../auth/jwt";
+import {
+  conversationDetail,
+  listConversations,
+  newConversation,
+  renameConversation,
+  seedConversations,
+  setMockTimeScale,
+  streamAnswer,
+  type MockConversation,
+  type Searchable,
+} from "./chat";
 import { EMBEDDING_MODEL, seedTenants, type MockDocument } from "./data";
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
@@ -183,6 +194,95 @@ async function upload(docs: MockDocument[], body: BodyInit | null | undefined): 
   return json(response, 202);
 }
 
+const conversationsByTenant = new Map<string, MockConversation[]>();
+
+/** What answers can cite: the tenant's ready documents, as they are now. */
+function searchable(docs: MockDocument[]): Searchable[] {
+  return docs
+    .map((mock) => ({ doc: current(mock), chunks: mock.chunks }))
+    .filter((entry) => entry.doc.status === "ready");
+}
+
+function readJson(body: BodyInit | null | undefined): Record<string, unknown> {
+  try {
+    const parsed: unknown = typeof body === "string" ? JSON.parse(body) : null;
+    return typeof parsed === "object" && parsed !== null ? (parsed as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+function handleChat(
+  tenantId: string,
+  docs: MockDocument[],
+  parts: string[],
+  method: string,
+  params: URLSearchParams,
+  init: RequestInit,
+): Response {
+  let conversations = conversationsByTenant.get(tenantId);
+  if (!conversations) {
+    // Seeded on first use, from the tenant's own contracts.
+    conversations = tenantId === "tenant_a" ? seedConversations(searchable(docs), startedAt) : [];
+    conversationsByTenant.set(tenantId, conversations);
+  }
+
+  if (parts[0] === "query" && parts[1] === "stream" && method === "POST") {
+    const body = readJson(init.body);
+    const question = typeof body.question === "string" ? body.question.trim() : "";
+    if (!question || question.length > 2_000) {
+      return problem(422, "Validation error", "The question must have between 1 and 2000 characters.");
+    }
+    let conversation: MockConversation | undefined;
+    if (typeof body.conversation_id === "string") {
+      conversation = conversations.find((c) => c.id === body.conversation_id);
+      if (!conversation) return problem(404, "Not found", "Conversation not found.");
+    } else {
+      conversation = newConversation(question);
+    }
+    const retry = body.retry === true;
+    if (retry && conversation.messages.at(-2)?.content !== question) {
+      return problem(422, "Validation error", "A retry must repeat the last question of the conversation.");
+    }
+    const list = conversations;
+    const target = conversation;
+    return streamAnswer({
+      question,
+      conversation,
+      retry,
+      docs: searchable(docs),
+      signal: init.signal,
+      onStored: () => {
+        if (!list.includes(target)) list.push(target);
+      },
+    });
+  }
+
+  if (parts[0] === "conversations" && parts.length === 1 && method === "GET") {
+    const list = listConversations(conversations, params);
+    return list ? json(list) : problem(422, "Validation error", "limit must be 1-100 and offset must be 0 or more.");
+  }
+
+  const index = conversations.findIndex((c) => c.id === parts[1]);
+  const conversation = conversations[index];
+  if (parts[0] !== "conversations" || parts.length !== 2 || !conversation) {
+    return problem(404, "Not found", "Conversation not found.");
+  }
+  if (method === "GET") return json(conversationDetail(conversation));
+  if (method === "PATCH") {
+    const title = readJson(init.body).title;
+    if (typeof title !== "string" || !title.trim() || title.trim().length > 120) {
+      return problem(422, "Validation error", "The title must have between 1 and 120 characters.");
+    }
+    return json(renameConversation(conversation, title.trim()));
+  }
+  if (method === "DELETE") {
+    conversations.splice(index, 1);
+    return new Response(null, { status: 204 });
+  }
+  return problem(405, "Method not allowed", `${method} is not allowed here.`);
+}
+
 async function handle(path: string, init: RequestInit): Promise<Response> {
   const auth = new Headers(init.headers).get("Authorization") ?? "";
   const claims = auth.startsWith("Bearer ") ? decodeClaims(auth.slice(7)) : null;
@@ -197,6 +297,9 @@ async function handle(path: string, init: RequestInit): Promise<Response> {
   const method = (init.method ?? "GET").toUpperCase();
   const parts = url.pathname.split("/").filter(Boolean);
 
+  if (parts[0] === "query" || parts[0] === "conversations") {
+    return handleChat(claims.tenant_id, docs, parts, method, url.searchParams, init);
+  }
   if (parts[0] !== "documents") return problem(404, "Not found", `No route for ${url.pathname}.`);
 
   if (parts.length === 1 && method === "POST") return upload(docs, init.body);
@@ -218,15 +321,23 @@ async function handle(path: string, init: RequestInit): Promise<Response> {
   return problem(404, "Not found", `No route for ${url.pathname}.`);
 }
 
+/** Network latency of the mock: 1 in the browser, 0 in tests. */
+let latencyScale = 1;
+
 async function mockFetch(input: string, init: RequestInit = {}): Promise<Response> {
   const path = input.startsWith(API_PREFIX) ? input.slice(API_PREFIX.length) : input;
   const isUpload = (init.method ?? "GET").toUpperCase() === "POST";
-  await delay(isUpload ? 500 + Math.random() * 1_200 : 120 + Math.random() * 280, init.signal);
+  const latency = isUpload ? 500 + Math.random() * 1_200 : 120 + Math.random() * 280;
+  await delay(latency * latencyScale, init.signal);
   return handle(path, init);
 }
 
-export function installMockApi(): void {
+/** `instant` (tests) removes the simulated latency of requests and answers. */
+export function installMockApi({ instant = false }: { instant?: boolean } = {}): void {
+  latencyScale = instant ? 0 : 1;
+  setMockTimeScale(latencyScale);
   setFetchImplementation(mockFetch);
+  if (instant) return;
   console.info("[mocks] API served in memory. Demo chunk link:", demoChunkLink());
 }
 

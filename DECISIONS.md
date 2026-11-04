@@ -22,6 +22,7 @@ are collected at the end once the related milestones are done.
 | [ADR-F03](#adr-f03--route-errors-keep-the-shell) | Route errors keep the shell | Accepted |
 | [ADR-F04](#adr-f04--a-strict-content-security-policy-for-the-web-app) | A strict Content-Security-Policy for the web app | Accepted |
 | [ADR-F05](#adr-f05--frontend-types-generated-from-a-committed-openapi-document) | Frontend types generated from a committed OpenAPI document | Accepted |
+| [ADR-F06](#adr-f06--whole-app-tests-over-the-mock-api) | Whole-app tests over the mock API | Accepted |
 
 ---
 
@@ -227,3 +228,20 @@ are collected at the end once the related milestones are done.
   - Every contract change shows up as a reviewable diff in the PR.
 - **Regenerating:** with the API running, `curl -s http://localhost:8000/openapi.json | python3 -m json.tool --indent 2 > frontend/openapi.json`, then `npm run gen:types` in `frontend/`. Without a running API, the same JSON comes from `create_app().openapi()` in the backend environment (it needs `JWT_SECRET` set).
 - **CI:** the frontend job re-runs `gen:types` and fails if `schema.d.ts` differs from what the committed `openapi.json` produces. It does not check `openapi.json` against the backend code: that needs the backend's Python environment, which is the backend job's (out of this change's scope). That check is listed as debt.
+
+## ADR-F06 · Whole-app tests over the mock API
+
+- **Decision:** `src/test/renderApp.tsx` renders the real routes with a memory router, a fresh `QueryClient` (no retries, bound to the same tenant-switch clearing as the app's), the demo tokens and the in-memory mock API with its latency off (`installMockApi({ instant: true })`). The tests drive the app the way a user does (labels, roles, text) and assert on what is shown and on the URL.
+- **Covered:**
+  - sign-in and 401;
+  - the documents table's search and filter in the URL;
+  - upload (a non-PDF never reaches the API; a PDF is sent);
+  - tenant switch (no documents nor conversations of the other tenant);
+  - chat: answer, badge, citation navigation, insufficient evidence, warning, Stop, 504 with Retry;
+  - Markdown never producing HTML elements;
+  - a route that throws.
+- **Rejected:** mocking `fetch` per test or MSW. The mock API already speaks the contract at the fetch level and is what the demo runs on, so the tests exercise the same code. MSW would also have been a new dependency.
+- **Bugs these tests found:**
+  - A new conversation was fetched before the backend had stored it: a 404 replaced the answer in progress. Fixed: the query waits for the first turn.
+  - The mock upload used `Blob.arrayBuffer`, which jsdom lacks. It now reads files with `FileReader`.
+- **Cost:** the tests wait up to 10 s per query (`asyncUtilTimeout`) and 30 s per test. That is generous, but a full-app test in jsdom on a slow CI runner needs it.

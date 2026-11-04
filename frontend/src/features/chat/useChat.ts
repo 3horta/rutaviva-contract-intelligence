@@ -16,6 +16,11 @@ export interface LiveTurn {
   conversationId: string | null;
   question: string;
   retry: boolean;
+  /**
+   * The conversation was created by this turn. The backend stores it only with
+   * its first turn, so until then it must not be fetched (it would be a 404).
+   */
+  unsaved: boolean;
   state: "streaming" | "failed" | "interrupted";
   phase: PhaseUpdate | null;
   error: ApiError | null;
@@ -70,6 +75,9 @@ export function useChat(conversationId: string | undefined) {
   const controllerRef = useRef<AbortController | null>(null);
   const reloadTimer = useRef<number | undefined>(undefined);
   const mounted = useRef(true);
+  // The conversation on screen now, for callbacks that outlive a render.
+  const currentId = useRef(conversationId);
+  currentId.current = conversationId;
 
   useEffect(() => {
     mounted.current = true;
@@ -83,8 +91,15 @@ export function useChat(conversationId: string | undefined) {
 
   const update = (patch: Partial<LiveTurn>) => setLive((turn) => turn && { ...turn, ...patch });
 
+  /** A first turn that was not stored: its conversation does not exist, back to /chat. */
+  function leaveUnsaved(id: string) {
+    queryClient.removeQueries({ queryKey: conversationKeys.detail(id) });
+    update({ conversationId: null, unsaved: false });
+    if (currentId.current === id) navigate("/chat", { replace: true });
+  }
+
   /** Shows what the server kept of a stopped answer. */
-  function reloadAfterStop(id: string, lastIdBefore: string | null) {
+  function reloadAfterStop(id: string, lastIdBefore: string | null, unsaved: boolean) {
     reloadTimer.current = window.setTimeout(() => {
       if (!mounted.current) return;
       void queryClient
@@ -99,7 +114,10 @@ export function useChat(conversationId: string | undefined) {
             setLive((turn) => (turn?.state === "interrupted" ? null : turn));
           }
         })
-        .catch(() => undefined); // the note stays
+        .catch(() => {
+          // Not stored (yet): the note stays; a new chat goes back to /chat.
+          if (unsaved) leaveUnsaved(id);
+        });
       void queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
     }, RELOAD_AFTER_STOP_MS);
   }
@@ -112,11 +130,12 @@ export function useChat(conversationId: string | undefined) {
     const controller = new AbortController();
     controllerRef.current = controller;
     let id = conversationId ?? null;
+    let unsaved = false;
     const lastIdBefore = id
       ? (queryClient.getQueryData<ConversationDetail>(conversationKeys.detail(id))?.messages.at(-1)?.id ?? null)
       : null;
 
-    setLive({ conversationId: id, question, retry, state: "streaming", phase: null, error: null });
+    setLive({ conversationId: id, question, retry, unsaved, state: "streaming", phase: null, error: null });
     setAnnouncement("Answering…");
 
     try {
@@ -131,6 +150,7 @@ export function useChat(conversationId: string | undefined) {
               // A new chat gets its id: it goes into the URL, without a history entry.
               const newId = event.data.conversation_id;
               id = newId;
+              unsaved = true;
               const now = new Date().toISOString();
               queryClient.setQueryData<ConversationDetail>(conversationKeys.detail(newId), {
                 id: newId,
@@ -139,9 +159,8 @@ export function useChat(conversationId: string | undefined) {
                 updated_at: now,
                 messages: [],
               });
-              update({ conversationId: newId });
+              update({ conversationId: newId, unsaved: true });
               navigate(`/chat/${newId}`, { replace: true });
-              void queryClient.invalidateQueries({ queryKey: conversationKeys.lists() });
             }
           },
         },
@@ -160,10 +179,11 @@ export function useChat(conversationId: string | undefined) {
       if (controller.signal.aborted) {
         update({ state: "interrupted" });
         setAnnouncement("Answer stopped");
-        if (id) reloadAfterStop(id, lastIdBefore);
+        if (id) reloadAfterStop(id, lastIdBefore, unsaved);
       } else {
         update({ state: "failed", error: toApiError(error) });
         setAnnouncement("The answer failed");
+        if (id && unsaved) leaveUnsaved(id);
       }
     } finally {
       controllerRef.current = null;
@@ -188,6 +208,8 @@ export function useChat(conversationId: string | undefined) {
 
   return {
     live: visible,
+    /** While true, the open conversation must not be fetched from the server. */
+    unsavedConversation: Boolean(visible?.unsaved),
     streaming: live?.state === "streaming",
     announcement,
     ask,

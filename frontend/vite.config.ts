@@ -24,5 +24,7 @@ export default defineConfig({
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     css: false,
+    // Whole-app tests (src/test) wait for several requests and a streamed answer.
+    testTimeout: 30_000,
   },
 });

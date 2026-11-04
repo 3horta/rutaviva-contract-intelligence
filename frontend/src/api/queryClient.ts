@@ -15,12 +15,19 @@ export const queryClient = new QueryClient({
   },
 });
 
-// Data never crosses tenants: switching the active token empties the cache.
-let activeKey = authStore.getState().activeKey;
-authStore.subscribe(() => {
-  const next = authStore.getState().activeKey;
-  if (next !== activeKey) {
-    activeKey = next;
-    queryClient.clear();
-  }
-});
+/**
+ * Data never crosses tenants: switching the active token empties the cache.
+ * Returns the unsubscribe function (the tests bind their own clients).
+ */
+export function clearOnTenantSwitch(client: QueryClient): () => void {
+  let activeKey = authStore.getState().activeKey;
+  return authStore.subscribe(() => {
+    const next = authStore.getState().activeKey;
+    if (next !== activeKey) {
+      activeKey = next;
+      client.clear();
+    }
+  });
+}
+
+clearOnTenantSwitch(queryClient);
